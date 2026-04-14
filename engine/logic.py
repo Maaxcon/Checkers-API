@@ -25,18 +25,22 @@ def apply_move(board: Board, move: MoveType) -> Board:
     new_board = clone_board(board)
 
     piece = new_board[move.from_row][move.from_col]
-    assert piece is not None, "Legal move must have a source piece"
-    assert new_board[move.row][move.col] is None, "Legal move must target an empty square"
+    if piece is None:
+        raise ValueError("No piece at source position")
+    if new_board[move.row][move.col] is not None:
+        raise ValueError("Target position must be empty")
 
     new_board[move.from_row][move.from_col] = None
 
     if move.type == "capture":
+        if not is_valid_position(move.captured_row, move.captured_col):
+            raise ValueError("Captured position is out of board bounds")
+
         captured_piece = new_board[move.captured_row][move.captured_col]
-        assert is_valid_position(
-            move.captured_row, move.captured_col
-        ), "Legal capture must have valid captured coordinates"
-        assert captured_piece is not None, "Legal capture must have a captured piece"
-        assert captured_piece.player != piece.player, "Legal capture must target an opponent piece"
+        if captured_piece is None:
+            raise ValueError("Captured position does not contain a piece")
+        if captured_piece.player == piece.player:
+            raise ValueError("Capture must target an opponent piece")
 
         new_board[move.captured_row][move.captured_col] = None
 
@@ -51,6 +55,8 @@ def apply_move(board: Board, move: MoveType) -> Board:
 
 
 def get_winner(board: Board, turn: Player) -> Optional[Player]:
+    _assert_valid_player(turn)
+
     if not _player_has_pieces(board, PLAYERS.LIGHT):
         return PLAYERS.DARK
     if not _player_has_pieces(board, PLAYERS.DARK):
@@ -63,6 +69,8 @@ def get_winner(board: Board, turn: Player) -> Optional[Player]:
 
 
 def get_legal_moves_for_player(board: Board, player: Player) -> list[MoveType]:
+    _assert_valid_player(player)
+
     player_moves = _get_player_moves(board, player)
     capture_moves = _filter_capture_moves(player_moves)
     if capture_moves:
@@ -75,13 +83,16 @@ def get_legal_moves_for_piece(board: Board, row: int, col: int) -> list[MoveType
     if piece is None:
         return []
 
+    _assert_valid_player(piece.player)
+
     piece_moves = get_moves_for_piece(board, row, col)
     if not piece_moves:
         return []
 
-    capture_moves = _filter_capture_moves(piece_moves)
-    if capture_moves:
-        return capture_moves
+    player_moves = _get_player_moves(board, piece.player)
+    player_capture_moves = _filter_capture_moves(player_moves)
+    if player_capture_moves:
+        return _filter_capture_moves(piece_moves)
     return piece_moves
 
 
@@ -95,6 +106,7 @@ def get_chain_capture_moves(board: Board, row: int, col: int) -> list[MoveType]:
 
 
 def get_opponent(player: Player) -> Player:
+    _assert_valid_player(player)
     return PLAYERS.DARK if player == PLAYERS.LIGHT else PLAYERS.LIGHT
 
 
@@ -118,3 +130,8 @@ def _get_player_moves(board: Board, player: Player) -> list[MoveType]:
 
 def _filter_capture_moves(moves: list[MoveType]) -> list[MoveType]:
     return [move for move in moves if move.type == "capture"]
+
+
+def _assert_valid_player(player: Player) -> None:
+    if player not in (PLAYERS.LIGHT, PLAYERS.DARK):
+        raise ValueError(f"Unsupported player value: {player}")

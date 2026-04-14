@@ -14,8 +14,8 @@ class Game(models.Model):
     status = models.CharField(max_length=20, default='IN_PROGRESS') 
     current_turn = models.CharField(max_length=10, choices=PLAYER_CHOICES, default='light')
     winner = models.CharField(max_length=10, choices=PLAYER_CHOICES, null=True, blank=True)
-    player_time_remaining = models.IntegerField(default=300) 
-    last_move_at = models.DateTimeField(auto_now_add=True)
+    player_time_remaining = models.PositiveIntegerField(default=300)
+    last_move_at = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -31,7 +31,7 @@ class MoveEntry(models.Model):
     captured_pos = models.JSONField(null=True, blank=True)
     is_promoted = models.BooleanField(default=False)
     board_before = models.JSONField()
-    time_spent = models.IntegerField()
+    time_spent = models.PositiveIntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
