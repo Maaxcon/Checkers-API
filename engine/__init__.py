@@ -1,0 +1,2 @@
+"""Checkers game package modules."""
+
