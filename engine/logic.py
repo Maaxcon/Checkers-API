@@ -14,9 +14,13 @@ def apply_move(board: Board, move: MoveType) -> Board:
     if not is_valid_position(move.row, move.col):
         raise ValueError("Target position is out of board bounds")
 
-    legal_moves = get_legal_moves_for_piece(board, move.from_row, move.from_col)
-    if move not in legal_moves:
-        raise ValueError("Move is not legal for the selected piece")
+    source_piece = get_piece(board, move.from_row, move.from_col)
+    if source_piece is None:
+        raise ValueError("No piece at source position")
+
+    player_legal_moves = get_legal_moves_for_player(board, source_piece.player)
+    if move not in player_legal_moves:
+        raise ValueError("Move is not legal for the current player")
 
     new_board = clone_board(board)
 
