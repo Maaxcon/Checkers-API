@@ -1,12 +1,19 @@
 import uuid
 from django.db import models
 
+
+PLAYER_CHOICES = (
+    ("light", "light"),
+    ("dark", "dark"),
+)
+
+
 class Game(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     board = models.JSONField()
     status = models.CharField(max_length=20, default='IN_PROGRESS') 
-    current_turn = models.CharField(max_length=10, default='LIGHT') 
-    winner = models.CharField(max_length=10, null=True, blank=True)
+    current_turn = models.CharField(max_length=10, choices=PLAYER_CHOICES, default='light')
+    winner = models.CharField(max_length=10, choices=PLAYER_CHOICES, null=True, blank=True)
     player_time_remaining = models.IntegerField(default=300) 
     last_move_at = models.DateTimeField(auto_now_add=True)
     created_at = models.DateTimeField(auto_now_add=True)
