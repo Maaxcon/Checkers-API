@@ -20,6 +20,7 @@ from checkers.models import Game, MoveEntry
 from engine.board import create_initial_board
 from engine.logic import apply_move, get_chain_capture_moves, get_legal_moves_for_player, get_winner
 from engine.serializers import board_to_json, json_to_board
+from engine.types import Board, MoveType
 
 
 @dataclass
@@ -88,7 +89,11 @@ def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: 
         game.player_time_remaining -= time_spent
 
         board = json_to_board(game.board)
+        forced_chain_moves = _get_forced_chain_moves(game, board)
         legal_moves = get_legal_moves_for_player(board, game.current_turn)
+        if forced_chain_moves is not None:
+            legal_moves = forced_chain_moves
+
         requested_move = next(
             (
                 move
@@ -102,6 +107,8 @@ def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: 
         )
 
         if requested_move is None:
+            if forced_chain_moves is not None:
+                raise GameServiceError("You must continue capture with the same piece")
             raise GameServiceError("Illegal move")
 
         try:
@@ -272,3 +279,45 @@ def _serialize_game(game: Game, time_remaining: int | None = None) -> dict[str, 
         "winner": game.winner,
         "time_remaining": game.player_time_remaining if time_remaining is None else time_remaining,
     }
+
+
+def _get_forced_chain_moves(game: Game, board: Board) -> list[MoveType] | None:
+    last_move = game.moves.order_by("-created_at", "-id").first()
+    if last_move is None or not last_move.is_jump:
+        return None
+
+    mover_player = _extract_player_from_board(last_move.board_before, last_move.from_pos)
+    if mover_player != game.current_turn:
+        return None
+
+    to_row, to_col = _extract_pos(last_move.to_pos)
+    if to_row is None or to_col is None:
+        return None
+
+    chain_moves = get_chain_capture_moves(board, to_row, to_col)
+    return chain_moves or None
+
+
+def _extract_player_from_board(board_json: Any, pos: Any) -> str | None:
+    row, col = _extract_pos(pos)
+    if row is None or col is None:
+        return None
+
+    try:
+        piece = board_json[row][col]
+    except (IndexError, KeyError, TypeError):
+        return None
+
+    if isinstance(piece, dict):
+        player = piece.get("player")
+        if player in PLAYER_VALUES:
+            return player
+    return None
+
+
+def _extract_pos(pos: Any) -> tuple[int | None, int | None]:
+    if not isinstance(pos, (list, tuple)) or len(pos) != 2:
+        return None, None
+    if not isinstance(pos[0], int) or not isinstance(pos[1], int):
+        return None, None
+    return pos[0], pos[1]
