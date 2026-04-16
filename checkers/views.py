@@ -198,3 +198,27 @@ def restart_game(request, game_id):
         'winner': game.winner,
         'time_remaining': game.player_time_remaining,
     }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+def get_move_history(request, game_id):
+    game = get_object_or_404(Game, id=game_id)
+    moves = game.moves.order_by('created_at', 'id')
+
+    return Response({
+        'game_id': str(game.id),
+        'moves': [
+            {
+                'id': move.id,
+                'from_pos': move.from_pos,
+                'to_pos': move.to_pos,
+                'is_jump': move.is_jump,
+                'captured_pos': move.captured_pos,
+                'is_promoted': move.is_promoted,
+                'board_before': move.board_before,
+                'time_spent': move.time_spent,
+                'created_at': move.created_at.isoformat(),
+            }
+            for move in moves
+        ],
+    }, status=status.HTTP_200_OK)
