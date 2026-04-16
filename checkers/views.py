@@ -175,3 +175,26 @@ def undo_move(request, game_id):
         'winner': game.winner,
         'time_remaining': game.player_time_remaining,
     }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+def restart_game(request, game_id):
+    with transaction.atomic():
+        game = get_object_or_404(Game.objects.select_for_update(), id=game_id)
+
+        game.moves.all().delete()
+        game.board = board_to_json(create_initial_board())
+        game.status = 'IN_PROGRESS'
+        game.current_turn = 'light'
+        game.winner = None
+        game.player_time_remaining = 300
+        game.last_move_at = timezone.now()
+        game.save()
+
+    return Response({
+        'status': 'ok',
+        'board': game.board,
+        'turn': game.current_turn,
+        'winner': game.winner,
+        'time_remaining': game.player_time_remaining,
+    }, status=status.HTTP_200_OK)
