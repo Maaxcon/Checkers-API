@@ -1,7 +1,9 @@
+from typing import Any
+
 from django.db import migrations, models
 
 
-def normalize_player_values_forward(apps, schema_editor):
+def normalize_player_values_forward(apps: Any, schema_editor: Any) -> None:
     Game = apps.get_model("checkers", "Game")
     Game.objects.filter(current_turn="LIGHT").update(current_turn="light")
     Game.objects.filter(current_turn="DARK").update(current_turn="dark")
@@ -9,7 +11,7 @@ def normalize_player_values_forward(apps, schema_editor):
     Game.objects.filter(winner="DARK").update(winner="dark")
 
 
-def normalize_player_values_reverse(apps, schema_editor):
+def normalize_player_values_reverse(apps: Any, schema_editor: Any) -> None:
     Game = apps.get_model("checkers", "Game")
     Game.objects.filter(current_turn="light").update(current_turn="LIGHT")
     Game.objects.filter(current_turn="dark").update(current_turn="DARK")

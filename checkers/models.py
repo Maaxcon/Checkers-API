@@ -25,7 +25,7 @@ class Game(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Game {self.id} - {self.status}"
 
 
@@ -40,5 +40,5 @@ class MoveEntry(models.Model):
     time_spent = models.PositiveIntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Move in {self.game.id}: {self.from_pos} -> {self.to_pos}"

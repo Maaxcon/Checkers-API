@@ -1,5 +1,8 @@
+from uuid import UUID
+
 from rest_framework import status
 from rest_framework.decorators import api_view
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from .serializers import MoveRequestSerializer
@@ -19,7 +22,7 @@ def _service_error_response(error: GameServiceError) -> Response:
 
 
 @api_view(["POST"])
-def create_game(request):
+def create_game(request: Request) -> Response:
     try:
         payload = create_game_service()
         return Response(payload, status=status.HTTP_201_CREATED)
@@ -28,7 +31,7 @@ def create_game(request):
 
 
 @api_view(["GET"])
-def get_game(request, game_id):
+def get_game(request: Request, game_id: UUID) -> Response:
     try:
         payload = get_game_service(game_id)
         return Response(payload, status=status.HTTP_200_OK)
@@ -37,7 +40,7 @@ def get_game(request, game_id):
 
 
 @api_view(["POST"])
-def make_move(request, game_id):
+def make_move(request: Request, game_id: UUID) -> Response:
     serializer = MoveRequestSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -50,7 +53,7 @@ def make_move(request, game_id):
 
 
 @api_view(["POST"])
-def undo_move(request, game_id):
+def undo_move(request: Request, game_id: UUID) -> Response:
     try:
         payload = undo_move_service(game_id)
         return Response(payload, status=status.HTTP_200_OK)
@@ -59,7 +62,7 @@ def undo_move(request, game_id):
 
 
 @api_view(["POST"])
-def restart_game(request, game_id):
+def restart_game(request: Request, game_id: UUID) -> Response:
     try:
         payload = restart_game_service(game_id)
         return Response(payload, status=status.HTTP_200_OK)
@@ -68,7 +71,7 @@ def restart_game(request, game_id):
 
 
 @api_view(["GET"])
-def get_move_history(request, game_id):
+def get_move_history(request: Request, game_id: UUID) -> Response:
     try:
         payload = get_move_history_service(game_id)
         return Response(payload, status=status.HTTP_200_OK)
