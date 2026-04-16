@@ -137,3 +137,41 @@ def make_move(request, game_id):
         'winner': game.winner,
         'time_remaining': game.player_time_remaining,
     }, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+def undo_move(request, game_id):
+    with transaction.atomic():
+        game = get_object_or_404(Game.objects.select_for_update(), id=game_id)
+        last_move = game.moves.select_for_update().order_by('-created_at', '-id').first()
+
+        if last_move is None:
+            return Response({'error': 'No moves to undo'}, status=status.HTTP_400_BAD_REQUEST)
+
+        board_before = last_move.board_before
+        from_row, from_col = last_move.from_pos
+        mover_player = None
+        try:
+            piece_data = board_before[from_row][from_col]
+            if piece_data:
+                mover_player = piece_data.get('player')
+        except (IndexError, TypeError, KeyError):
+            mover_player = None
+
+        game.board = board_before
+        game.current_turn = mover_player if mover_player in ('light', 'dark') else game.current_turn
+        game.status = 'IN_PROGRESS'
+        game.winner = None
+        game.player_time_remaining += last_move.time_spent
+        game.last_move_at = timezone.now()
+        game.save()
+
+        last_move.delete()
+
+    return Response({
+        'status': 'ok',
+        'board': game.board,
+        'turn': game.current_turn,
+        'winner': game.winner,
+        'time_remaining': game.player_time_remaining,
+    }, status=status.HTTP_200_OK)
