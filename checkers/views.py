@@ -1,3 +1,21 @@
-from django.shortcuts import render
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
 
-# Create your views here.
+from .models import Game
+from engine.board import create_initial_board
+from engine.serializers import board_to_json
+
+@api_view(['POST'])
+def create_game(request):
+    initial_board = board_to_json(create_initial_board())
+    game = Game.objects.create(board=initial_board)
+
+    return Response({
+        'id': str(game.id),
+        'status': game.status,
+        'board': game.board,
+        'turn': game.current_turn,
+        'winner': game.winner,
+        'time_remaining': game.player_time_remaining,
+    }, status=status.HTTP_201_CREATED)
