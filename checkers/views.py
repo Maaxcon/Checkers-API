@@ -27,7 +27,23 @@ def create_game(request):
 
 @api_view(['GET'])
 def get_game(request, game_id):
-    game = get_object_or_404(Game, id=game_id)
+    with transaction.atomic():
+        game = get_object_or_404(Game.objects.select_for_update(), id=game_id)
+
+        displayed_time_remaining = game.player_time_remaining
+        if game.status == 'IN_PROGRESS':
+            now = timezone.now()
+            elapsed = max(0, int((now - game.last_move_at).total_seconds()))
+            displayed_time_remaining = max(0, game.player_time_remaining - elapsed)
+
+            # Lazy timeout: if time is over at read time, immediately finish the game.
+            if displayed_time_remaining == 0:
+                game.player_time_remaining = 0
+                game.status = 'FINISHED'
+                game.winner = 'dark' if game.current_turn == 'light' else 'light'
+                game.last_move_at = now
+                game.save()
+                displayed_time_remaining = 0
 
     return Response({
         'id': str(game.id),
@@ -35,7 +51,7 @@ def get_game(request, game_id):
         'board': game.board,
         'turn': game.current_turn,
         'winner': game.winner,
-        'time_remaining': game.player_time_remaining,
+        'time_remaining': displayed_time_remaining,
     }, status=status.HTTP_200_OK)
 
 
@@ -62,6 +78,26 @@ def make_move(request, game_id):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        now = timezone.now()
+        time_spent = max(0, int((now - game.last_move_at).total_seconds()))
+        if time_spent >= game.player_time_remaining:
+            game.player_time_remaining = 0
+            game.status = 'FINISHED'
+            game.winner = 'dark' if game.current_turn == 'light' else 'light'
+            game.last_move_at = now
+            game.save()
+            return Response(
+                {
+                    'error': 'Time is over. Move is not counted.',
+                    'status': game.status,
+                    'winner': game.winner,
+                    'time_remaining': game.player_time_remaining,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        game.player_time_remaining -= time_spent
+
         board = json_to_board(game.board)
         legal_moves = get_legal_moves_for_player(board, game.current_turn)
         requested_move = next(
@@ -82,10 +118,6 @@ def make_move(request, game_id):
             new_board = apply_move(board, requested_move)
         except ValueError as error:
             return Response({'error': str(error)}, status=status.HTTP_400_BAD_REQUEST)
-
-        now = timezone.now()
-        time_spent = max(0, int((now - game.last_move_at).total_seconds()))
-        game.player_time_remaining = max(0, game.player_time_remaining - time_spent)
 
         is_jump = requested_move.type == "capture"
         captured_pos = None
