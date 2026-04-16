@@ -7,6 +7,15 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
+from checkers.constants import (
+    API_STATUS_OK,
+    DEFAULT_PLAYER_TIME_SECONDS,
+    GAME_STATUS_FINISHED,
+    GAME_STATUS_IN_PROGRESS,
+    PLAYER_DARK,
+    PLAYER_LIGHT,
+    PLAYER_VALUES,
+)
 from checkers.models import Game, MoveEntry
 from engine.board import create_initial_board
 from engine.logic import apply_move, get_chain_capture_moves, get_legal_moves_for_player, get_winner
@@ -37,14 +46,14 @@ def get_game(game_id: UUID) -> dict[str, Any]:
         game = _get_game_for_update(game_id)
 
         displayed_time_remaining = game.player_time_remaining
-        if game.status == "IN_PROGRESS":
+        if game.status == GAME_STATUS_IN_PROGRESS:
             now = timezone.now()
             elapsed = max(0, int((now - game.last_move_at).total_seconds()))
             displayed_time_remaining = max(0, game.player_time_remaining - elapsed)
 
             if displayed_time_remaining == 0:
                 game.player_time_remaining = 0
-                game.status = "FINISHED"
+                game.status = GAME_STATUS_FINISHED
                 game.winner = _opponent(game.current_turn)
                 game.last_move_at = now
                 game.save()
@@ -62,7 +71,7 @@ def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: 
         time_spent = max(0, int((now - game.last_move_at).total_seconds()))
         if time_spent >= game.player_time_remaining:
             game.player_time_remaining = 0
-            game.status = "FINISHED"
+            game.status = GAME_STATUS_FINISHED
             game.winner = _opponent(game.current_turn)
             game.last_move_at = now
             game.save()
@@ -115,7 +124,7 @@ def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: 
 
         winner = get_winner(new_board, game.current_turn)
         if winner:
-            game.status = "FINISHED"
+            game.status = GAME_STATUS_FINISHED
             game.winner = winner
 
         moved_piece_before = board[from_row][from_col]
@@ -144,7 +153,7 @@ def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: 
         )
 
     return {
-        "status": "ok",
+        "status": API_STATUS_OK,
         "board": game.board,
         "turn": game.current_turn,
         "winner": game.winner,
@@ -172,9 +181,9 @@ def undo_move(game_id: UUID) -> dict[str, Any]:
             mover_player = None
 
         game.board = board_before
-        if mover_player in ("light", "dark"):
+        if mover_player in PLAYER_VALUES:
             game.current_turn = mover_player
-        game.status = "IN_PROGRESS"
+        game.status = GAME_STATUS_IN_PROGRESS
         game.winner = None
         game.player_time_remaining += last_move.time_spent
         game.last_move_at = timezone.now()
@@ -182,7 +191,7 @@ def undo_move(game_id: UUID) -> dict[str, Any]:
         last_move.delete()
 
     return {
-        "status": "ok",
+        "status": API_STATUS_OK,
         "board": game.board,
         "turn": game.current_turn,
         "winner": game.winner,
@@ -196,15 +205,15 @@ def restart_game(game_id: UUID) -> dict[str, Any]:
 
         game.moves.all().delete()
         game.board = board_to_json(create_initial_board())
-        game.status = "IN_PROGRESS"
-        game.current_turn = "light"
+        game.status = GAME_STATUS_IN_PROGRESS
+        game.current_turn = PLAYER_LIGHT
         game.winner = None
-        game.player_time_remaining = 300
+        game.player_time_remaining = DEFAULT_PLAYER_TIME_SECONDS
         game.last_move_at = timezone.now()
         game.save()
 
     return {
-        "status": "ok",
+        "status": API_STATUS_OK,
         "board": game.board,
         "turn": game.current_turn,
         "winner": game.winner,
@@ -246,12 +255,12 @@ def _get_game_for_update(game_id: UUID) -> Game:
 
 
 def _ensure_game_in_progress(game: Game) -> None:
-    if game.status != "IN_PROGRESS":
+    if game.status != GAME_STATUS_IN_PROGRESS:
         raise GameServiceError("Game is already finished")
 
 
 def _opponent(player: str) -> str:
-    return "dark" if player == "light" else "light"
+    return PLAYER_DARK if player == PLAYER_LIGHT else PLAYER_LIGHT
 
 
 def _serialize_game(game: Game, time_remaining: int | None = None) -> dict[str, Any]:

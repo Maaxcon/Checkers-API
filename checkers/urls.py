@@ -17,6 +17,6 @@ urlpatterns = [
     # POST /api/games/{id}/restart/
     path('games/<uuid:game_id>/restart/', views.restart_game, name='restart_game'),
     
-    # GET /api/games/{id}/moves/
+    # GET /api/games/{id}/moves/    
     path('games/<uuid:game_id>/moves/', views.get_move_history, name='get_move_history'),
 ]
