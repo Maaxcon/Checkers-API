@@ -45,20 +45,7 @@ def create_game() -> dict[str, Any]:
 def get_game(game_id: UUID) -> dict[str, Any]:
     with transaction.atomic():
         game = _get_game_for_update(game_id)
-
-        displayed_time_remaining = game.player_time_remaining
-        if game.status == GAME_STATUS_IN_PROGRESS:
-            now = timezone.now()
-            elapsed = max(0, int((now - game.last_move_at).total_seconds()))
-            displayed_time_remaining = max(0, game.player_time_remaining - elapsed)
-
-            if displayed_time_remaining == 0:
-                game.player_time_remaining = 0
-                game.status = GAME_STATUS_FINISHED
-                game.winner = _opponent(game.current_turn)
-                game.last_move_at = now
-                game.save()
-                displayed_time_remaining = 0
+        displayed_time_remaining = _apply_lazy_timeout(game)
 
     return _serialize_game(game, time_remaining=displayed_time_remaining)
 
@@ -66,6 +53,7 @@ def get_game(game_id: UUID) -> dict[str, Any]:
 def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: int) -> dict[str, Any]:
     with transaction.atomic():
         game = _get_game_for_update(game_id)
+        _apply_lazy_timeout(game)
         _ensure_game_in_progress(game)
 
         now = timezone.now()
@@ -171,6 +159,8 @@ def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: 
 def undo_move(game_id: UUID) -> dict[str, Any]:
     with transaction.atomic():
         game = _get_game_for_update(game_id)
+        _apply_lazy_timeout(game)
+        _ensure_game_in_progress(game)
         last_move = game.moves.select_for_update().order_by("-created_at", "-id").first()
 
         if last_move is None:
@@ -209,6 +199,7 @@ def undo_move(game_id: UUID) -> dict[str, Any]:
 def restart_game(game_id: UUID) -> dict[str, Any]:
     with transaction.atomic():
         game = _get_game_for_update(game_id)
+        _apply_lazy_timeout(game)
 
         game.moves.all().delete()
         game.board = board_to_json(create_initial_board())
@@ -229,12 +220,11 @@ def restart_game(game_id: UUID) -> dict[str, Any]:
 
 
 def get_move_history(game_id: UUID) -> dict[str, Any]:
-    try:
-        game = Game.objects.get(id=game_id)
-    except Game.DoesNotExist as error:
-        raise GameServiceError("Game not found", status_code=404) from error
+    with transaction.atomic():
+        game = _get_game_for_update(game_id)
+        _apply_lazy_timeout(game)
+        moves = list(game.moves.order_by("created_at", "id"))
 
-    moves = game.moves.order_by("created_at", "id")
     return {
         "game_id": str(game.id),
         "moves": [
@@ -279,6 +269,23 @@ def _serialize_game(game: Game, time_remaining: int | None = None) -> dict[str, 
         "winner": game.winner,
         "time_remaining": game.player_time_remaining if time_remaining is None else time_remaining,
     }
+
+
+def _apply_lazy_timeout(game: Game) -> int:
+    if game.status != GAME_STATUS_IN_PROGRESS:
+        return game.player_time_remaining
+
+    now = timezone.now()
+    elapsed = max(0, int((now - game.last_move_at).total_seconds()))
+    time_remaining = max(0, game.player_time_remaining - elapsed)
+    if time_remaining == 0:
+        game.player_time_remaining = 0
+        game.status = GAME_STATUS_FINISHED
+        game.winner = _opponent(game.current_turn)
+        game.last_move_at = now
+        game.save()
+
+    return time_remaining
 
 
 def _get_forced_chain_moves(game: Game, board: Board) -> list[MoveType] | None:
