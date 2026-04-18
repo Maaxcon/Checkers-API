@@ -17,20 +17,20 @@ from .services.game_service import (
 
 
 @api_view(["POST"])
-def create_game(request: Request) -> Response:
+def create_game(_request: Request) -> Response:
     payload = create_game_service()
     return Response(payload, status=status.HTTP_201_CREATED)
 
 
 @api_view(["GET"])
-def get_game(request: Request, game_id: UUID) -> Response:
+def get_game(_request: Request, game_id: UUID) -> Response:
     payload = get_game_service(game_id)
     return Response(payload, status=status.HTTP_200_OK)
 
 
 @api_view(["POST"])
-def make_move(request: Request, game_id: UUID) -> Response:
-    serializer = MoveRequestSerializer(data=request.data)
+def make_move(_request: Request, game_id: UUID) -> Response:
+    serializer = MoveRequestSerializer(data=_request.data)
     serializer.is_valid(raise_exception=True)
 
     payload = make_move_service(game_id, **serializer.validated_data)
@@ -38,18 +38,18 @@ def make_move(request: Request, game_id: UUID) -> Response:
 
 
 @api_view(["POST"])
-def undo_move(request: Request, game_id: UUID) -> Response:
+def undo_move(_request: Request, game_id: UUID) -> Response:
     payload = undo_move_service(game_id)
     return Response(payload, status=status.HTTP_200_OK)
 
 
 @api_view(["POST"])
-def restart_game(request: Request, game_id: UUID) -> Response:
+def restart_game(_request: Request, game_id: UUID) -> Response:
     payload = restart_game_service(game_id)
     return Response(payload, status=status.HTTP_200_OK)
 
 
 @api_view(["GET"])
-def get_move_history(request: Request, game_id: UUID) -> Response:
+def get_move_history(_request: Request, game_id: UUID) -> Response:
     payload = get_move_history_service(game_id)
     return Response(payload, status=status.HTTP_200_OK)
