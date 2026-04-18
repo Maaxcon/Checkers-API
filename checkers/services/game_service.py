@@ -19,7 +19,7 @@ from checkers.constants import (
 from checkers.models import Game, MoveEntry
 from checkers.services.board import create_initial_board
 from checkers.services.logic import apply_move, get_chain_capture_moves, get_legal_moves_for_player, get_winner
-from checkers.services.serializers import board_to_json, json_to_board
+from checkers.services.converters import board_to_json, json_to_board
 from checkers.services.types import Board, MoveType
 
 
