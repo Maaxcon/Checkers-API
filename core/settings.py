@@ -122,3 +122,7 @@ STATIC_URL = 'static/'
 
 # CORS configuration (development)
 CORS_ALLOW_ALL_ORIGINS = True
+
+REST_FRAMEWORK = {
+    "EXCEPTION_HANDLER": "checkers.exception_handler.custom_exception_handler",
+}

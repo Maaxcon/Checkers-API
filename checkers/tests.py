@@ -125,6 +125,14 @@ class GameTimerTests(TestCase):
         self.assertEqual(undo_response.data["light_time_remaining"], DEFAULT_PLAYER_TIME_SECONDS)
         self.assertEqual(undo_response.data["dark_time_remaining"], DEFAULT_PLAYER_TIME_SECONDS)
 
+    def test_game_service_error_is_rendered_by_global_exception_handler(self) -> None:
+        game = self._create_game()
+
+        response = self.client.post(f"/api/games/{game.id}/undo/", {}, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data, {"error": "No moves to undo"})
+
     def _create_game(self) -> Game:
         response = self.client.post("/api/games/", {}, format="json")
         self.assertEqual(response.status_code, 201)

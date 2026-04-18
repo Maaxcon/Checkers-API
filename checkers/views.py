@@ -7,7 +7,6 @@ from rest_framework.response import Response
 
 from .serializers import MoveRequestSerializer
 from .services.game_service import (
-    GameServiceError,
     create_game as create_game_service,
     get_game as get_game_service,
     get_move_history as get_move_history_service,
@@ -17,26 +16,16 @@ from .services.game_service import (
 )
 
 
-def _service_error_response(error: GameServiceError) -> Response:
-    return Response(error.to_payload(), status=error.status_code)
-
-
 @api_view(["POST"])
 def create_game(request: Request) -> Response:
-    try:
-        payload = create_game_service()
-        return Response(payload, status=status.HTTP_201_CREATED)
-    except GameServiceError as error:
-        return _service_error_response(error)
+    payload = create_game_service()
+    return Response(payload, status=status.HTTP_201_CREATED)
 
 
 @api_view(["GET"])
 def get_game(request: Request, game_id: UUID) -> Response:
-    try:
-        payload = get_game_service(game_id)
-        return Response(payload, status=status.HTTP_200_OK)
-    except GameServiceError as error:
-        return _service_error_response(error)
+    payload = get_game_service(game_id)
+    return Response(payload, status=status.HTTP_200_OK)
 
 
 @api_view(["POST"])
@@ -44,35 +33,23 @@ def make_move(request: Request, game_id: UUID) -> Response:
     serializer = MoveRequestSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
 
-    try:
-        payload = make_move_service(game_id, **serializer.validated_data)
-        return Response(payload, status=status.HTTP_200_OK)
-    except GameServiceError as error:
-        return _service_error_response(error)
+    payload = make_move_service(game_id, **serializer.validated_data)
+    return Response(payload, status=status.HTTP_200_OK)
 
 
 @api_view(["POST"])
 def undo_move(request: Request, game_id: UUID) -> Response:
-    try:
-        payload = undo_move_service(game_id)
-        return Response(payload, status=status.HTTP_200_OK)
-    except GameServiceError as error:
-        return _service_error_response(error)
+    payload = undo_move_service(game_id)
+    return Response(payload, status=status.HTTP_200_OK)
 
 
 @api_view(["POST"])
 def restart_game(request: Request, game_id: UUID) -> Response:
-    try:
-        payload = restart_game_service(game_id)
-        return Response(payload, status=status.HTTP_200_OK)
-    except GameServiceError as error:
-        return _service_error_response(error)
+    payload = restart_game_service(game_id)
+    return Response(payload, status=status.HTTP_200_OK)
 
 
 @api_view(["GET"])
 def get_move_history(request: Request, game_id: UUID) -> Response:
-    try:
-        payload = get_move_history_service(game_id)
-        return Response(payload, status=status.HTTP_200_OK)
-    except GameServiceError as error:
-        return _service_error_response(error)
+    payload = get_move_history_service(game_id)
+    return Response(payload, status=status.HTTP_200_OK)
