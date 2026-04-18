@@ -1,5 +1,6 @@
 import uuid
 from django.db import models
+from django.utils import timezone
 
 from .constants import (
     DEFAULT_PLAYER_TIME_SECONDS,
@@ -22,7 +23,7 @@ class Game(models.Model):
     winner = models.CharField(max_length=10, choices=PLAYER_CHOICES, null=True, blank=True)
     light_time_remaining = models.PositiveIntegerField(default=DEFAULT_PLAYER_TIME_SECONDS)
     dark_time_remaining = models.PositiveIntegerField(default=DEFAULT_PLAYER_TIME_SECONDS)
-    last_move_at = models.DateTimeField(auto_now=True)
+    last_move_at = models.DateTimeField(default=timezone.now)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
