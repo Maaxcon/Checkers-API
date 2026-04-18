@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -56,97 +57,176 @@ def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: 
         _apply_lazy_timeout(game)
         _ensure_game_in_progress(game)
 
-        now = timezone.now()
-        time_spent = max(0, int((now - game.last_move_at).total_seconds()))
-        if time_spent >= game.player_time_remaining:
-            game.player_time_remaining = 0
-            game.status = GAME_STATUS_FINISHED
-            game.winner = _opponent(game.current_turn)
-            game.last_move_at = now
-            game.save()
-            raise GameServiceError(
-                "Time is over. Move is not counted.",
-                status_code=400,
-                details={
-                    "status": game.status,
-                    "winner": game.winner,
-                    "time_remaining": game.player_time_remaining,
-                },
-            )
-
-        game.player_time_remaining -= time_spent
-
+        now, time_spent = _consume_move_time_or_fail(game)
         board = json_to_board(game.board)
-        forced_chain_moves = _get_forced_chain_moves(game, board)
-        legal_moves = get_legal_moves_for_player(board, game.current_turn)
-        if forced_chain_moves is not None:
-            legal_moves = forced_chain_moves
+        requested_move = _resolve_requested_move(game, board, from_row, from_col, to_row, to_col)
+        new_board = _apply_requested_move(board, requested_move)
+        is_jump, captured_pos = _apply_chain_capture_rules(game, new_board, requested_move, to_row, to_col)
+        _update_game_winner(game, new_board)
 
-        requested_move = next(
-            (
-                move
-                for move in legal_moves
-                if move.from_row == from_row
-                and move.from_col == from_col
-                and move.row == to_row
-                and move.col == to_col
-            ),
-            None,
+        is_promoted = _is_promotion_move(board, new_board, from_row, from_col, to_row, to_col)
+        board_before = _save_board_state(game, new_board, now)
+        _create_move_entry(
+            game,
+            from_row,
+            from_col,
+            to_row,
+            to_col,
+            is_jump,
+            captured_pos,
+            is_promoted,
+            board_before,
+            time_spent,
         )
 
-        if requested_move is None:
-            if forced_chain_moves is not None:
-                raise GameServiceError("You must continue capture with the same piece")
-            raise GameServiceError("Illegal move")
+    return _serialize_move_result(game)
 
-        try:
-            new_board = apply_move(board, requested_move)
-        except ValueError as error:
-            raise GameServiceError(str(error)) from error
 
-        is_jump = requested_move.type == "capture"
-        captured_pos = None
-        switch_turn = True
+def _consume_move_time_or_fail(game: Game) -> tuple[datetime, int]:
+    now = timezone.now()
+    time_spent = max(0, int((now - game.last_move_at).total_seconds()))
 
-        if is_jump:
-            captured_pos = [requested_move.captured_row, requested_move.captured_col]
-            chain_moves = get_chain_capture_moves(new_board, to_row, to_col)
-            if chain_moves:
-                switch_turn = False
-
-        if switch_turn:
-            game.current_turn = _opponent(game.current_turn)
-
-        winner = get_winner(new_board, game.current_turn)
-        if winner:
-            game.status = GAME_STATUS_FINISHED
-            game.winner = winner
-
-        moved_piece_before = board[from_row][from_col]
-        moved_piece_after = new_board[to_row][to_col]
-        is_promoted = bool(
-            moved_piece_before
-            and moved_piece_after
-            and not moved_piece_before.is_king
-            and moved_piece_after.is_king
-        )
-
-        board_before = game.board
-        game.board = board_to_json(new_board)
+    if time_spent >= game.player_time_remaining:
+        game.player_time_remaining = 0
+        game.status = GAME_STATUS_FINISHED
+        game.winner = _opponent(game.current_turn)
         game.last_move_at = now
         game.save()
-
-        MoveEntry.objects.create(
-            game=game,
-            from_pos=[from_row, from_col],
-            to_pos=[to_row, to_col],
-            is_jump=is_jump,
-            captured_pos=captured_pos,
-            is_promoted=is_promoted,
-            board_before=board_before,
-            time_spent=time_spent,
+        raise GameServiceError(
+            "Time is over. Move is not counted.",
+            status_code=400,
+            details={
+                "status": game.status,
+                "winner": game.winner,
+                "time_remaining": game.player_time_remaining,
+            },
         )
 
+    game.player_time_remaining -= time_spent
+    return now, time_spent
+
+
+def _resolve_requested_move(
+    game: Game,
+    board: Board,
+    from_row: int,
+    from_col: int,
+    to_row: int,
+    to_col: int,
+) -> MoveType:
+    forced_chain_moves = _get_forced_chain_moves(game, board)
+    legal_moves = get_legal_moves_for_player(board, game.current_turn)
+    if forced_chain_moves is not None:
+        legal_moves = forced_chain_moves
+
+    requested_move = next(
+        (
+            move
+            for move in legal_moves
+            if move.from_row == from_row
+            and move.from_col == from_col
+            and move.row == to_row
+            and move.col == to_col
+        ),
+        None,
+    )
+
+    if requested_move is None:
+        if forced_chain_moves is not None:
+            raise GameServiceError("You must continue capture with the same piece")
+        raise GameServiceError("Illegal move")
+
+    return requested_move
+
+
+def _apply_requested_move(board: Board, requested_move: MoveType) -> Board:
+    try:
+        return apply_move(board, requested_move)
+    except ValueError as error:
+        raise GameServiceError(str(error)) from error
+
+
+def _apply_chain_capture_rules(
+    game: Game,
+    new_board: Board,
+    requested_move: MoveType,
+    to_row: int,
+    to_col: int,
+) -> tuple[bool, list[int] | None]:
+    is_jump = requested_move.type == "capture"
+    captured_pos: list[int] | None = None
+    switch_turn = True
+
+    if is_jump:
+        captured_pos = [requested_move.captured_row, requested_move.captured_col]
+        chain_moves = get_chain_capture_moves(new_board, to_row, to_col)
+        if chain_moves:
+            switch_turn = False
+
+    if switch_turn:
+        game.current_turn = _opponent(game.current_turn)
+
+    return is_jump, captured_pos
+
+
+def _update_game_winner(game: Game, board: Board) -> None:
+    winner = get_winner(board, game.current_turn)
+    if winner:
+        game.status = GAME_STATUS_FINISHED
+        game.winner = winner
+
+
+def _is_promotion_move(
+    board_before_move: Board,
+    board_after_move: Board,
+    from_row: int,
+    from_col: int,
+    to_row: int,
+    to_col: int,
+) -> bool:
+    moved_piece_before = board_before_move[from_row][from_col]
+    moved_piece_after = board_after_move[to_row][to_col]
+    return bool(
+        moved_piece_before
+        and moved_piece_after
+        and not moved_piece_before.is_king
+        and moved_piece_after.is_king
+    )
+
+
+def _save_board_state(game: Game, new_board: Board, now: datetime) -> Any:
+    board_before = game.board
+    game.board = board_to_json(new_board)
+    game.last_move_at = now
+    game.save()
+    return board_before
+
+
+def _create_move_entry(
+    game: Game,
+    from_row: int,
+    from_col: int,
+    to_row: int,
+    to_col: int,
+    is_jump: bool,
+    captured_pos: list[int] | None,
+    is_promoted: bool,
+    board_before: Any,
+    time_spent: int,
+) -> None:
+    MoveEntry.objects.create(
+        game=game,
+        from_pos=[from_row, from_col],
+        to_pos=[to_row, to_col],
+        is_jump=is_jump,
+        captured_pos=captured_pos,
+        is_promoted=is_promoted,
+        board_before=board_before,
+        time_spent=time_spent,
+    )
+
+
+def _serialize_move_result(game: Game) -> dict[str, Any]:
     return {
         "status": API_STATUS_OK,
         "board": game.board,
