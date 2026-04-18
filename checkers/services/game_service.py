@@ -79,7 +79,7 @@ def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: 
             time_spent,
         )
 
-    return _serialize_move_result(game)
+    return _serialize_game(game, include_id=False, use_api_ok_status=True)
 
 
 def _consume_move_time_or_fail(game: Game) -> tuple[datetime, int]:
@@ -227,18 +227,6 @@ def _create_move_entry(
     )
 
 
-def _serialize_move_result(game: Game) -> dict[str, Any]:
-    return {
-        "status": API_STATUS_OK,
-        "board": game.board,
-        "turn": game.current_turn,
-        "winner": game.winner,
-        "time_remaining": _get_current_turn_time_remaining(game),
-        "light_time_remaining": game.light_time_remaining,
-        "dark_time_remaining": game.dark_time_remaining,
-    }
-
-
 def undo_move(game_id: UUID) -> dict[str, Any]:
     with transaction.atomic():
         game = _get_game_for_update(game_id)
@@ -270,15 +258,7 @@ def undo_move(game_id: UUID) -> dict[str, Any]:
         game.save()
         last_move.delete()
 
-    return {
-        "status": API_STATUS_OK,
-        "board": game.board,
-        "turn": game.current_turn,
-        "winner": game.winner,
-        "time_remaining": _get_current_turn_time_remaining(game),
-        "light_time_remaining": game.light_time_remaining,
-        "dark_time_remaining": game.dark_time_remaining,
-    }
+    return _serialize_game(game, include_id=False, use_api_ok_status=True)
 
 
 def restart_game(game_id: UUID) -> dict[str, Any]:
@@ -296,15 +276,7 @@ def restart_game(game_id: UUID) -> dict[str, Any]:
         game.last_move_at = timezone.now()
         game.save()
 
-    return {
-        "status": API_STATUS_OK,
-        "board": game.board,
-        "turn": game.current_turn,
-        "winner": game.winner,
-        "time_remaining": _get_current_turn_time_remaining(game),
-        "light_time_remaining": game.light_time_remaining,
-        "dark_time_remaining": game.dark_time_remaining,
-    }
+    return _serialize_game(game, include_id=False, use_api_ok_status=True)
 
 
 def get_move_history(game_id: UUID) -> dict[str, Any]:
@@ -344,7 +316,13 @@ def _ensure_game_in_progress(game: Game) -> None:
         raise GameServiceError("Game is already finished")
 
 
-def _serialize_game(game: Game, time_remaining: int | None = None) -> dict[str, Any]:
+def _serialize_game(
+    game: Game,
+    time_remaining: int | None = None,
+    *,
+    include_id: bool = True,
+    use_api_ok_status: bool = False,
+) -> dict[str, Any]:
     light_time_remaining = game.light_time_remaining
     dark_time_remaining = game.dark_time_remaining
     if time_remaining is not None:
@@ -353,9 +331,8 @@ def _serialize_game(game: Game, time_remaining: int | None = None) -> dict[str, 
         elif game.current_turn == PLAYER_DARK:
             dark_time_remaining = time_remaining
 
-    return {
-        "id": str(game.id),
-        "status": game.status,
+    payload: dict[str, Any] = {
+        "status": API_STATUS_OK if use_api_ok_status else game.status,
         "board": game.board,
         "turn": game.current_turn,
         "winner": game.winner,
@@ -363,6 +340,9 @@ def _serialize_game(game: Game, time_remaining: int | None = None) -> dict[str, 
         "light_time_remaining": light_time_remaining,
         "dark_time_remaining": dark_time_remaining,
     }
+    if include_id:
+        payload["id"] = str(game.id)
+    return payload
 
 
 def _apply_lazy_timeout(game: Game) -> int:
