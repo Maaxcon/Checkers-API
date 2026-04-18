@@ -42,8 +42,7 @@ def get_game(request: Request, game_id: UUID) -> Response:
 @api_view(["POST"])
 def make_move(request: Request, game_id: UUID) -> Response:
     serializer = MoveRequestSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    serializer.is_valid(raise_exception=True)
 
     try:
         payload = make_move_service(game_id, **serializer.validated_data)
