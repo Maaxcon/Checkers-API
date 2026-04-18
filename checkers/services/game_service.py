@@ -85,9 +85,10 @@ def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: 
 def _consume_move_time_or_fail(game: Game) -> tuple[datetime, int]:
     now = timezone.now()
     time_spent = max(0, int((now - game.last_move_at).total_seconds()))
+    current_time_remaining = _get_current_turn_time_remaining(game)
 
-    if time_spent >= game.player_time_remaining:
-        game.player_time_remaining = 0
+    if time_spent >= current_time_remaining:
+        _set_current_turn_time_remaining(game, 0)
         game.status = GAME_STATUS_FINISHED
         game.winner = _opponent(game.current_turn)
         game.last_move_at = now
@@ -98,11 +99,11 @@ def _consume_move_time_or_fail(game: Game) -> tuple[datetime, int]:
             details={
                 "status": game.status,
                 "winner": game.winner,
-                "time_remaining": game.player_time_remaining,
+                "time_remaining": _get_current_turn_time_remaining(game),
             },
         )
 
-    game.player_time_remaining -= time_spent
+    _set_current_turn_time_remaining(game, current_time_remaining - time_spent)
     return now, time_spent
 
 
@@ -232,7 +233,9 @@ def _serialize_move_result(game: Game) -> dict[str, Any]:
         "board": game.board,
         "turn": game.current_turn,
         "winner": game.winner,
-        "time_remaining": game.player_time_remaining,
+        "time_remaining": _get_current_turn_time_remaining(game),
+        "light_time_remaining": game.light_time_remaining,
+        "dark_time_remaining": game.dark_time_remaining,
     }
 
 
@@ -260,9 +263,9 @@ def undo_move(game_id: UUID) -> dict[str, Any]:
         game.board = board_before
         if mover_player in PLAYER_VALUES:
             game.current_turn = mover_player
+        _add_player_time_remaining(game, game.current_turn, last_move.time_spent)
         game.status = GAME_STATUS_IN_PROGRESS
         game.winner = None
-        game.player_time_remaining += last_move.time_spent
         game.last_move_at = timezone.now()
         game.save()
         last_move.delete()
@@ -272,7 +275,9 @@ def undo_move(game_id: UUID) -> dict[str, Any]:
         "board": game.board,
         "turn": game.current_turn,
         "winner": game.winner,
-        "time_remaining": game.player_time_remaining,
+        "time_remaining": _get_current_turn_time_remaining(game),
+        "light_time_remaining": game.light_time_remaining,
+        "dark_time_remaining": game.dark_time_remaining,
     }
 
 
@@ -286,7 +291,8 @@ def restart_game(game_id: UUID) -> dict[str, Any]:
         game.status = GAME_STATUS_IN_PROGRESS
         game.current_turn = PLAYER_LIGHT
         game.winner = None
-        game.player_time_remaining = DEFAULT_PLAYER_TIME_SECONDS
+        game.light_time_remaining = DEFAULT_PLAYER_TIME_SECONDS
+        game.dark_time_remaining = DEFAULT_PLAYER_TIME_SECONDS
         game.last_move_at = timezone.now()
         game.save()
 
@@ -295,7 +301,9 @@ def restart_game(game_id: UUID) -> dict[str, Any]:
         "board": game.board,
         "turn": game.current_turn,
         "winner": game.winner,
-        "time_remaining": game.player_time_remaining,
+        "time_remaining": _get_current_turn_time_remaining(game),
+        "light_time_remaining": game.light_time_remaining,
+        "dark_time_remaining": game.dark_time_remaining,
     }
 
 
@@ -341,31 +349,72 @@ def _opponent(player: str) -> str:
 
 
 def _serialize_game(game: Game, time_remaining: int | None = None) -> dict[str, Any]:
+    light_time_remaining = game.light_time_remaining
+    dark_time_remaining = game.dark_time_remaining
+    if time_remaining is not None:
+        if game.current_turn == PLAYER_LIGHT:
+            light_time_remaining = time_remaining
+        elif game.current_turn == PLAYER_DARK:
+            dark_time_remaining = time_remaining
+
     return {
         "id": str(game.id),
         "status": game.status,
         "board": game.board,
         "turn": game.current_turn,
         "winner": game.winner,
-        "time_remaining": game.player_time_remaining if time_remaining is None else time_remaining,
+        "time_remaining": _get_current_turn_time_remaining(game) if time_remaining is None else time_remaining,
+        "light_time_remaining": light_time_remaining,
+        "dark_time_remaining": dark_time_remaining,
     }
 
 
 def _apply_lazy_timeout(game: Game) -> int:
     if game.status != GAME_STATUS_IN_PROGRESS:
-        return game.player_time_remaining
+        return _get_current_turn_time_remaining(game)
 
     now = timezone.now()
     elapsed = max(0, int((now - game.last_move_at).total_seconds()))
-    time_remaining = max(0, game.player_time_remaining - elapsed)
+    time_remaining = max(0, _get_current_turn_time_remaining(game) - elapsed)
     if time_remaining == 0:
-        game.player_time_remaining = 0
+        _set_current_turn_time_remaining(game, 0)
         game.status = GAME_STATUS_FINISHED
         game.winner = _opponent(game.current_turn)
         game.last_move_at = now
         game.save()
 
     return time_remaining
+
+
+def _get_current_turn_time_remaining(game: Game) -> int:
+    return _get_player_time_remaining(game, game.current_turn)
+
+
+def _get_player_time_remaining(game: Game, player: str) -> int:
+    if player == PLAYER_LIGHT:
+        return game.light_time_remaining
+    if player == PLAYER_DARK:
+        return game.dark_time_remaining
+    raise GameServiceError(f"Unsupported player value: {player}")
+
+
+def _set_current_turn_time_remaining(game: Game, value: int) -> None:
+    _set_player_time_remaining(game, game.current_turn, value)
+
+
+def _set_player_time_remaining(game: Game, player: str, value: int) -> None:
+    if player == PLAYER_LIGHT:
+        game.light_time_remaining = value
+        return
+    if player == PLAYER_DARK:
+        game.dark_time_remaining = value
+        return
+    raise GameServiceError(f"Unsupported player value: {player}")
+
+
+def _add_player_time_remaining(game: Game, player: str, delta_seconds: int) -> None:
+    updated_time = _get_player_time_remaining(game, player) + delta_seconds
+    _set_player_time_remaining(game, player, updated_time)
 
 
 def _get_forced_chain_moves(game: Game, board: Board) -> list[MoveType] | None:
