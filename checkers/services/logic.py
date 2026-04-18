@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .board import clone_board, get_piece, is_valid_position
-from .constants import BOARD, PLAYERS, TOP_ROW_INDEX
+from .constants import BOARD, MOVE_TYPE_CAPTURE, PLAYERS, TOP_ROW_INDEX
 from .moves import get_moves_for_piece
 from .types import Board, CaptureMove, Move, MoveType, Piece, Player
 
@@ -32,7 +32,7 @@ def apply_move(board: Board, move: MoveType) -> Board:
 
     new_board[move.from_row][move.from_col] = None
 
-    if move.type == "capture":
+    if move.type == MOVE_TYPE_CAPTURE:
         if not is_valid_position(move.captured_row, move.captured_col):
             raise ValueError("Captured position is out of board bounds")
 
@@ -129,7 +129,7 @@ def _get_player_moves(board: Board, player: Player) -> list[MoveType]:
 
 
 def _filter_capture_moves(moves: list[MoveType]) -> list[MoveType]:
-    return [move for move in moves if move.type == "capture"]
+    return [move for move in moves if move.type == MOVE_TYPE_CAPTURE]
 
 
 def _assert_valid_player(player: Player) -> None:

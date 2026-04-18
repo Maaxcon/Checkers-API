@@ -17,6 +17,7 @@ from checkers.constants import (
     PLAYER_LIGHT,
     PLAYER_VALUES,
 )
+from checkers.services.constants import MOVE_TYPE_CAPTURE
 from checkers.models import Game, MoveEntry
 from checkers.services.board import create_initial_board
 from checkers.services.logic import apply_move, get_chain_capture_moves, get_legal_moves_for_player, get_opponent, get_winner
@@ -154,7 +155,7 @@ def _apply_chain_capture_rules(
     to_row: int,
     to_col: int,
 ) -> tuple[bool, list[int] | None]:
-    is_jump = requested_move.type == "capture"
+    is_jump = requested_move.type == MOVE_TYPE_CAPTURE
     captured_pos: list[int] | None = None
     switch_turn = True
 

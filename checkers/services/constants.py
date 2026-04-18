@@ -35,3 +35,4 @@ TOP_ROW_INDEX: Final[int] = 0
 MIN_INPUT_INDEX: Final[int] = 0
 COORD_PARTS_COUNT: Final[int] = 2
 DARK_SQUARE_PARITY: Final[int] = 1
+MOVE_TYPE_CAPTURE: Final[str] = "capture"
