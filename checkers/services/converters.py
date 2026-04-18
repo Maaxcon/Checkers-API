@@ -1,18 +1,25 @@
-from typing import Any
+from typing import TypedDict
 
-from .types import Piece, Board
+from .types import Board, Piece, Player
 
-SerializedPiece = dict[str, Any]
+
+class SerializedPiece(TypedDict):
+    player: Player
+    is_king: bool
+
+
 SerializedBoard = list[list[SerializedPiece | None]]
+
 
 def board_to_json(board: Board) -> SerializedBoard:
     return [
-        [(p.__dict__ if p else None) for p in row]
+        [({"player": p.player, "is_king": p.is_king} if p else None) for p in row]
         for row in board
     ]
 
+
 def json_to_board(board_json: SerializedBoard) -> Board:
     return [
-        [(Piece(**p) if p else None) for p in row]
+        [(Piece(player=p["player"], is_king=p["is_king"]) if p else None) for p in row]
         for row in board_json
     ]

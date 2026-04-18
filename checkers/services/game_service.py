@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from dataclasses import dataclass
-from typing import Any
+from typing import cast
 from uuid import UUID
 
 from django.db import transaction
@@ -21,8 +21,8 @@ from checkers.serializers import GameStateSerializer
 from checkers.services.constants import MOVE_TYPE_CAPTURE
 from checkers.models import Game, MoveEntry
 from checkers.services.board import create_initial_board
+from checkers.services.converters import SerializedBoard, board_to_json, json_to_board
 from checkers.services.logic import apply_move, get_chain_capture_moves, get_legal_moves_for_player, get_opponent, get_winner
-from checkers.services.converters import board_to_json, json_to_board
 from checkers.services.types import Board, MoveType
 
 
@@ -30,28 +30,28 @@ from checkers.services.types import Board, MoveType
 class GameServiceError(Exception):
     message: str
     status_code: int = 400
-    details: dict[str, Any] | None = None
+    details: dict[str, object] | None = None
 
-    def to_payload(self) -> dict[str, Any]:
+    def to_payload(self) -> dict[str, object]:
         payload = {"error": self.message}
         if self.details:
             payload.update(self.details)
         return payload
 
 
-def create_game() -> dict[str, Any]:
+def create_game() -> dict[str, object]:
     initial_board = board_to_json(create_initial_board())
     game = Game.objects.create(board=initial_board)
     return _serialize_game(game)
 
 
-def get_game(game_id: UUID) -> dict[str, Any]:
+def get_game(game_id: UUID) -> dict[str, object]:
     game = _get_game(game_id)
     displayed_time_remaining = _apply_lazy_timeout(game)
     return _serialize_game(game, time_remaining=displayed_time_remaining)
 
 
-def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: int) -> dict[str, Any]:
+def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: int) -> dict[str, object]:
     with transaction.atomic():
         game = _get_game_for_update(game_id)
         _apply_lazy_timeout(game)
@@ -195,8 +195,8 @@ def _is_promotion_move(
     )
 
 
-def _save_board_state(game: Game, new_board: Board, now: datetime) -> Any:
-    board_before = game.board
+def _save_board_state(game: Game, new_board: Board, now: datetime) -> SerializedBoard:
+    board_before = cast(SerializedBoard, game.board)
     game.board = board_to_json(new_board)
     game.last_move_at = now
     game.save()
@@ -212,7 +212,7 @@ def _create_move_entry(
     is_jump: bool,
     captured_pos: list[int] | None,
     is_promoted: bool,
-    board_before: Any,
+    board_before: SerializedBoard,
     time_spent: int,
 ) -> None:
     MoveEntry.objects.create(
@@ -227,7 +227,7 @@ def _create_move_entry(
     )
 
 
-def undo_move(game_id: UUID) -> dict[str, Any]:
+def undo_move(game_id: UUID) -> dict[str, object]:
     with transaction.atomic():
         game = _get_game_for_update(game_id)
         _apply_lazy_timeout(game)
@@ -237,7 +237,7 @@ def undo_move(game_id: UUID) -> dict[str, Any]:
         if last_move is None:
             raise GameServiceError("No moves to undo")
 
-        board_before = last_move.board_before
+        board_before = cast(SerializedBoard, last_move.board_before)
         from_row, from_col = last_move.from_pos
 
         mover_player = None
@@ -261,7 +261,7 @@ def undo_move(game_id: UUID) -> dict[str, Any]:
     return _serialize_game(game, include_id=False, use_api_ok_status=True)
 
 
-def restart_game(game_id: UUID) -> dict[str, Any]:
+def restart_game(game_id: UUID) -> dict[str, object]:
     with transaction.atomic():
         game = _get_game_for_update(game_id)
         _apply_lazy_timeout(game)
@@ -279,7 +279,7 @@ def restart_game(game_id: UUID) -> dict[str, Any]:
     return _serialize_game(game, include_id=False, use_api_ok_status=True)
 
 
-def get_move_history(game_id: UUID) -> dict[str, Any]:
+def get_move_history(game_id: UUID) -> dict[str, object]:
     game = _get_game(game_id)
     _apply_lazy_timeout(game)
     moves = list(game.moves.order_by("created_at", "id"))
@@ -328,7 +328,7 @@ def _serialize_game(
     *,
     include_id: bool = True,
     use_api_ok_status: bool = False,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     serializer = GameStateSerializer(
         game,
         context={
@@ -336,7 +336,7 @@ def _serialize_game(
             "time_remaining_override": time_remaining,
         },
     )
-    payload: dict[str, Any] = dict(serializer.data)
+    payload: dict[str, object] = dict(serializer.data)
     if include_id:
         return payload
     payload.pop("id", None)
@@ -408,24 +408,26 @@ def _get_forced_chain_moves(game: Game, board: Board) -> list[MoveType] | None:
     return chain_moves or None
 
 
-def _extract_player_from_board(board_json: Any, pos: Any) -> str | None:
+def _extract_player_from_board(board_json: SerializedBoard, pos: object) -> str | None:
     row, col = _extract_pos(pos)
     if row is None or col is None:
         return None
 
     try:
         piece = board_json[row][col]
-    except (IndexError, KeyError, TypeError):
+    except (IndexError, TypeError):
         return None
 
-    if isinstance(piece, dict):
-        player = piece.get("player")
-        if player in PLAYER_VALUES:
-            return player
+    if piece is None:
+        return None
+
+    player = piece["player"]
+    if player in PLAYER_VALUES:
+        return player
     return None
 
 
-def _extract_pos(pos: Any) -> tuple[int | None, int | None]:
+def _extract_pos(pos: object) -> tuple[int | None, int | None]:
     if not isinstance(pos, (list, tuple)) or len(pos) != 2:
         return None, None
     if not isinstance(pos[0], int) or not isinstance(pos[1], int):

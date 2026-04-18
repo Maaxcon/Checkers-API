@@ -1,9 +1,13 @@
-from typing import Any
+from typing import Protocol
 
 from django.db import migrations, models
 
 
-def normalize_player_values_forward(apps: Any, schema_editor: Any) -> None:
+class AppsRegistry(Protocol):
+    def get_model(self, app_label: str, model_name: str): ...
+
+
+def normalize_player_values_forward(apps: AppsRegistry, schema_editor: object) -> None:
     Game = apps.get_model("checkers", "Game")
     Game.objects.filter(current_turn="LIGHT").update(current_turn="light")
     Game.objects.filter(current_turn="DARK").update(current_turn="dark")
@@ -11,7 +15,7 @@ def normalize_player_values_forward(apps: Any, schema_editor: Any) -> None:
     Game.objects.filter(winner="DARK").update(winner="dark")
 
 
-def normalize_player_values_reverse(apps: Any, schema_editor: Any) -> None:
+def normalize_player_values_reverse(apps: AppsRegistry, schema_editor: object) -> None:
     Game = apps.get_model("checkers", "Game")
     Game.objects.filter(current_turn="light").update(current_turn="LIGHT")
     Game.objects.filter(current_turn="dark").update(current_turn="DARK")
