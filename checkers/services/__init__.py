@@ -1,1 +1,2 @@
-"""Service layer for checkers app."""
+"""Checkers game package modules."""
+

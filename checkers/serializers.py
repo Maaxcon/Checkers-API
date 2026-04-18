@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from engine.constants import BOARD, MIN_INPUT_INDEX
+from checkers.services.constants import BOARD, MIN_INPUT_INDEX
 
 
 class MoveRequestSerializer(serializers.Serializer):
