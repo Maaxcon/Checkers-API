@@ -17,6 +17,7 @@ from checkers.constants import (
     PLAYER_LIGHT,
     PLAYER_VALUES,
 )
+from checkers.serializers import GameStateSerializer
 from checkers.services.constants import MOVE_TYPE_CAPTURE
 from checkers.models import Game, MoveEntry
 from checkers.services.board import create_initial_board
@@ -328,25 +329,17 @@ def _serialize_game(
     include_id: bool = True,
     use_api_ok_status: bool = False,
 ) -> dict[str, Any]:
-    light_time_remaining = game.light_time_remaining
-    dark_time_remaining = game.dark_time_remaining
-    if time_remaining is not None:
-        if game.current_turn == PLAYER_LIGHT:
-            light_time_remaining = time_remaining
-        elif game.current_turn == PLAYER_DARK:
-            dark_time_remaining = time_remaining
-
-    payload: dict[str, Any] = {
-        "status": API_STATUS_OK if use_api_ok_status else game.status,
-        "board": game.board,
-        "turn": game.current_turn,
-        "winner": game.winner,
-        "time_remaining": _get_current_turn_time_remaining(game) if time_remaining is None else time_remaining,
-        "light_time_remaining": light_time_remaining,
-        "dark_time_remaining": dark_time_remaining,
-    }
+    serializer = GameStateSerializer(
+        game,
+        context={
+            "status_override": API_STATUS_OK if use_api_ok_status else None,
+            "time_remaining_override": time_remaining,
+        },
+    )
+    payload: dict[str, Any] = dict(serializer.data)
     if include_id:
-        payload["id"] = str(game.id)
+        return payload
+    payload.pop("id", None)
     return payload
 
 
