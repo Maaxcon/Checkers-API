@@ -45,10 +45,8 @@ def create_game() -> dict[str, Any]:
 
 
 def get_game(game_id: UUID) -> dict[str, Any]:
-    with transaction.atomic():
-        game = _get_game_for_update(game_id)
-        displayed_time_remaining = _apply_lazy_timeout(game)
-
+    game = _get_game(game_id)
+    displayed_time_remaining = _apply_lazy_timeout(game)
     return _serialize_game(game, time_remaining=displayed_time_remaining)
 
 
@@ -281,10 +279,9 @@ def restart_game(game_id: UUID) -> dict[str, Any]:
 
 
 def get_move_history(game_id: UUID) -> dict[str, Any]:
-    with transaction.atomic():
-        game = _get_game_for_update(game_id)
-        _apply_lazy_timeout(game)
-        moves = list(game.moves.order_by("created_at", "id"))
+    game = _get_game(game_id)
+    _apply_lazy_timeout(game)
+    moves = list(game.moves.order_by("created_at", "id"))
 
     return {
         "game_id": str(game.id),
@@ -308,6 +305,13 @@ def get_move_history(game_id: UUID) -> dict[str, Any]:
 def _get_game_for_update(game_id: UUID) -> Game:
     try:
         return Game.objects.select_for_update().get(id=game_id)
+    except Game.DoesNotExist as error:
+        raise GameServiceError("Game not found", status_code=404) from error
+
+
+def _get_game(game_id: UUID) -> Game:
+    try:
+        return Game.objects.get(id=game_id)
     except Game.DoesNotExist as error:
         raise GameServiceError("Game not found", status_code=404) from error
 
