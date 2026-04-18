@@ -19,7 +19,7 @@ from checkers.constants import (
 )
 from checkers.models import Game, MoveEntry
 from checkers.services.board import create_initial_board
-from checkers.services.logic import apply_move, get_chain_capture_moves, get_legal_moves_for_player, get_winner
+from checkers.services.logic import apply_move, get_chain_capture_moves, get_legal_moves_for_player, get_opponent, get_winner
 from checkers.services.converters import board_to_json, json_to_board
 from checkers.services.types import Board, MoveType
 
@@ -90,7 +90,7 @@ def _consume_move_time_or_fail(game: Game) -> tuple[datetime, int]:
     if time_spent >= current_time_remaining:
         _set_current_turn_time_remaining(game, 0)
         game.status = GAME_STATUS_FINISHED
-        game.winner = _opponent(game.current_turn)
+        game.winner = get_opponent(game.current_turn)
         game.last_move_at = now
         game.save()
         raise GameServiceError(
@@ -165,7 +165,7 @@ def _apply_chain_capture_rules(
             switch_turn = False
 
     if switch_turn:
-        game.current_turn = _opponent(game.current_turn)
+        game.current_turn = get_opponent(game.current_turn)
 
     return is_jump, captured_pos
 
@@ -344,10 +344,6 @@ def _ensure_game_in_progress(game: Game) -> None:
         raise GameServiceError("Game is already finished")
 
 
-def _opponent(player: str) -> str:
-    return PLAYER_DARK if player == PLAYER_LIGHT else PLAYER_LIGHT
-
-
 def _serialize_game(game: Game, time_remaining: int | None = None) -> dict[str, Any]:
     light_time_remaining = game.light_time_remaining
     dark_time_remaining = game.dark_time_remaining
@@ -379,7 +375,7 @@ def _apply_lazy_timeout(game: Game) -> int:
     if time_remaining == 0:
         _set_current_turn_time_remaining(game, 0)
         game.status = GAME_STATUS_FINISHED
-        game.winner = _opponent(game.current_turn)
+        game.winner = get_opponent(game.current_turn)
         game.last_move_at = now
         game.save()
 
