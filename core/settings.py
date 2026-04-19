@@ -19,12 +19,28 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 
+def env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_list(name: str) -> list[str]:
+    raw = os.getenv(name, "")
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-insecure-secret-key-change-me")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+ENVIRONMENT = os.getenv("DJANGO_ENV", "development").strip().lower()
+IS_PRODUCTION = ENVIRONMENT == "production"
+DEBUG = env_bool("DJANGO_DEBUG", default=not IS_PRODUCTION)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS")
+if not ALLOWED_HOSTS and DEBUG:
+    ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
 
 
 # Application definition
@@ -119,8 +135,9 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-# CORS configuration (development)
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS configuration
+CORS_ALLOW_ALL_ORIGINS = env_bool("DJANGO_CORS_ALLOW_ALL_ORIGINS", default=DEBUG)
+CORS_ALLOWED_ORIGINS = env_list("DJANGO_CORS_ALLOWED_ORIGINS")
 
 REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "checkers.exception_handler.custom_exception_handler",
