@@ -13,7 +13,7 @@ class MoveRequestSerializer(serializers.Serializer):
 
 
 class GameStateSerializer(serializers.ModelSerializer):
-    turn = serializers.CharField(source="current_turn", read_only=True)
+    turn = serializers.IntegerField(source="current_turn", read_only=True)
     status = serializers.SerializerMethodField()
     time_remaining = serializers.SerializerMethodField()
     light_time_remaining = serializers.SerializerMethodField()

@@ -10,8 +10,8 @@ from .constants import (
 )
 
 PLAYER_CHOICES = (
-    (PLAYER_LIGHT, PLAYER_LIGHT),
-    (PLAYER_DARK, PLAYER_DARK),
+    (PLAYER_LIGHT, "light"),
+    (PLAYER_DARK, "dark"),
 )
 
 
@@ -19,8 +19,8 @@ class Game(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     board = models.JSONField()
     status = models.CharField(max_length=20, default=GAME_STATUS_IN_PROGRESS)
-    current_turn = models.CharField(max_length=10, choices=PLAYER_CHOICES, default=PLAYER_LIGHT)
-    winner = models.CharField(max_length=10, choices=PLAYER_CHOICES, null=True, blank=True)
+    current_turn = models.PositiveSmallIntegerField(choices=PLAYER_CHOICES, default=PLAYER_LIGHT)
+    winner = models.PositiveSmallIntegerField(choices=PLAYER_CHOICES, null=True, blank=True)
     light_time_remaining = models.PositiveIntegerField(default=DEFAULT_PLAYER_TIME_SECONDS)
     dark_time_remaining = models.PositiveIntegerField(default=DEFAULT_PLAYER_TIME_SECONDS)
     last_move_at = models.DateTimeField(default=timezone.now)

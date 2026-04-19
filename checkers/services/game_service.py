@@ -23,7 +23,7 @@ from checkers.models import Game, MoveEntry
 from checkers.services.board import create_initial_board
 from checkers.services.converters import SerializedBoard, board_to_json, json_to_board
 from checkers.services.logic import apply_move, get_chain_capture_moves, get_legal_moves_for_player, get_opponent, get_winner
-from checkers.services.types import Board, MoveType
+from checkers.services.types import Board, MoveType, Player
 
 
 @dataclass
@@ -357,7 +357,7 @@ def _get_current_turn_time_remaining(game: Game) -> int:
     return _get_player_time_remaining(game, game.current_turn)
 
 
-def _get_player_time_remaining(game: Game, player: str) -> int:
+def _get_player_time_remaining(game: Game, player: Player) -> int:
     if player == PLAYER_LIGHT:
         return game.light_time_remaining
     if player == PLAYER_DARK:
@@ -369,7 +369,7 @@ def _set_current_turn_time_remaining(game: Game, value: int) -> None:
     _set_player_time_remaining(game, game.current_turn, value)
 
 
-def _set_player_time_remaining(game: Game, player: str, value: int) -> None:
+def _set_player_time_remaining(game: Game, player: Player, value: int) -> None:
     if player == PLAYER_LIGHT:
         game.light_time_remaining = value
         return
@@ -379,7 +379,7 @@ def _set_player_time_remaining(game: Game, player: str, value: int) -> None:
     raise GameServiceError(f"Unsupported player value: {player}")
 
 
-def _add_player_time_remaining(game: Game, player: str, delta_seconds: int) -> None:
+def _add_player_time_remaining(game: Game, player: Player, delta_seconds: int) -> None:
     updated_time = _get_player_time_remaining(game, player) + delta_seconds
     _set_player_time_remaining(game, player, updated_time)
 
@@ -401,7 +401,7 @@ def _get_forced_chain_moves(game: Game, board: Board) -> list[MoveType] | None:
     return chain_moves or None
 
 
-def _get_last_turn_moves_for_undo(game: Game) -> tuple[list[MoveEntry], str | None]:
+def _get_last_turn_moves_for_undo(game: Game) -> tuple[list[MoveEntry], Player | None]:
     moves_desc = list(game.moves.select_for_update().order_by("-created_at", "-id"))
     if not moves_desc:
         return [], None
@@ -429,7 +429,7 @@ def _get_last_turn_moves_for_undo(game: Game) -> tuple[list[MoveEntry], str | No
     return turn_moves, mover_player
 
 
-def _extract_player_from_board(board_json: SerializedBoard, pos: object) -> str | None:
+def _extract_player_from_board(board_json: SerializedBoard, pos: object) -> Player | None:
     row, col = _extract_pos(pos)
     if row is None or col is None:
         return None

@@ -26,7 +26,7 @@ class GameSettings:
     JUMP_DISTANCE: int
 
 BOARD: Final[BoardConfig] = BoardConfig(ROWS=8, COLS=8, PIECE_ROWS=3)
-PLAYERS: Final[Players] = Players(LIGHT="light", DARK="dark")
+PLAYERS: Final[Players] = Players(LIGHT=1, DARK=2)
 DIRECTIONS: Final[Directions] = Directions(UP=-1, DOWN=1)
 GAME_SETTINGS: Final[GameSettings] = GameSettings(JUMP_DISTANCE=2)
 CAPTURE_DIRS: Final[tuple[tuple[int, int], ...]] = ((-1, -1), (-1, 1), (1, -1), (1, 1))

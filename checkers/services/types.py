@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Optional, Union
 
-Player = Literal["light", "dark"]
+Player = Literal[1, 2]
 
 @dataclass(frozen=True)
 class Piece:
