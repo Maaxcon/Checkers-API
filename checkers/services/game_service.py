@@ -279,20 +279,7 @@ def get_move_history(game_id: UUID) -> dict[str, object]:
 
     return {
         "game_id": str(game.id),
-        "moves": [
-            {
-                "id": move.id,
-                "from_pos": _to_coord_object(move.from_pos),
-                "to_pos": _to_coord_object(move.to_pos),
-                "is_jump": move.is_jump,
-                "captured_pos": _to_coord_object(move.captured_pos),
-                "is_promoted": move.is_promoted,
-                "board_before": move.board_before,
-                "time_spent": _seconds_to_milliseconds(move.time_spent),
-                "created_at": move.created_at.isoformat(),
-            }
-            for move in moves
-        ],
+        "move_log": _build_move_log(moves),
     }
 
 
@@ -456,11 +443,53 @@ def _extract_pos(pos: object) -> tuple[int | None, int | None]:
     return pos[0], pos[1]
 
 
-def _to_coord_object(pos: object) -> dict[str, int] | None:
-    row, col = _extract_pos(pos)
-    if row is None or col is None:
-        return None
-    return {"row": row, "col": col}
+def _build_move_log(moves: list[MoveEntry]) -> list[dict[str, object]]:
+    move_log: list[dict[str, object]] = []
+    last_player: Player | None = None
+
+    for move in moves:
+        from_row, from_col = _extract_pos(move.from_pos)
+        to_row, to_col = _extract_pos(move.to_pos)
+        if from_row is None or from_col is None or to_row is None or to_col is None:
+            continue
+
+        mover_player = _extract_player_from_board(cast(SerializedBoard, move.board_before), move.from_pos)
+        is_capture = bool(move.is_jump)
+
+        if move_log and mover_player is not None and mover_player == last_player and is_capture:
+            last_entry = dict(move_log[-1])
+            last_entry["notation"] = _append_capture_notation(cast(str, last_entry["notation"]), to_row, to_col)
+            last_entry["to"] = {"row": to_row, "col": to_col}
+            move_log[-1] = last_entry
+            continue
+
+        move_log.append(
+            {
+                "notation": _format_move_notation(from_row, from_col, to_row, to_col, is_capture),
+                "from": {"row": from_row, "col": from_col},
+                "to": {"row": to_row, "col": to_col},
+            }
+        )
+        last_player = mover_player
+
+    return move_log
+
+
+def _to_notation(row: int, col: int) -> str:
+    letters = ("a", "b", "c", "d", "e", "f", "g", "h")
+    number = 8 - row
+    return f"{letters[col]}{number}"
+
+
+def _format_move_notation(from_row: int, from_col: int, to_row: int, to_col: int, is_capture: bool) -> str:
+    from_notation = _to_notation(from_row, from_col)
+    to_notation = _to_notation(to_row, to_col)
+    separator = " x " if is_capture else "-"
+    return f"{from_notation}{separator}{to_notation}"
+
+
+def _append_capture_notation(notation: str, to_row: int, to_col: int) -> str:
+    return f"{notation}x{_to_notation(to_row, to_col)}"
 
 
 def _seconds_to_milliseconds(seconds: int) -> int:

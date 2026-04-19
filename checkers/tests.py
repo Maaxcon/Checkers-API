@@ -195,7 +195,7 @@ class GameTimerTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(payload, {"error": "No moves to undo"})
 
-    def test_move_history_uses_structured_positions_and_milliseconds(self) -> None:
+    def test_move_history_includes_frontend_style_move_log(self) -> None:
         game = self._create_game()
         fixed_now = timezone.now().replace(microsecond=0)
         self._set_last_move_at(game, fixed_now - timedelta(seconds=10))
@@ -213,13 +213,58 @@ class GameTimerTests(TestCase):
         history_payload = self._payload(history_response)
 
         self.assertEqual(history_payload["gameId"], str(game.id))
-        self.assertEqual(len(history_payload["moves"]), 1)
+        self.assertNotIn("moves", history_payload)
+        self.assertEqual(len(history_payload["moveLog"]), 1)
 
-        move = history_payload["moves"][0]
-        self.assertEqual(move["fromPos"], {"row": 5, "col": 0})
-        self.assertEqual(move["toPos"], {"row": 4, "col": 1})
-        self.assertIsNone(move["capturedPos"])
-        self.assertEqual(move["timeSpent"], 10_000)
+        move_log_entry = history_payload["moveLog"][0]
+        self.assertEqual(move_log_entry["notation"], "a3-b4")
+        self.assertEqual(move_log_entry["from"], {"row": 5, "col": 0})
+        self.assertEqual(move_log_entry["to"], {"row": 4, "col": 1})
+
+    def test_move_history_groups_multi_capture_into_single_move_log_entry(self) -> None:
+        game = self._create_game()
+        initial_board = self._build_multi_capture_board()
+        base_now = timezone.now().replace(microsecond=0)
+
+        Game.objects.filter(id=game.id).update(
+            board=initial_board,
+            current_turn=PLAYER_LIGHT,
+            status=GAME_STATUS_IN_PROGRESS,
+            winner=None,
+            light_time_remaining=DEFAULT_PLAYER_TIME_SECONDS,
+            dark_time_remaining=DEFAULT_PLAYER_TIME_SECONDS,
+            last_move_at=base_now,
+        )
+        game.refresh_from_db()
+
+        first_now = base_now + timedelta(seconds=4)
+        with patch("checkers.services.game_service.timezone.now", return_value=first_now):
+            first_move = self.client.post(
+                f"/api/games/{game.id}/move/",
+                {"from_row": 5, "from_col": 0, "to_row": 3, "to_col": 2},
+                format="json",
+            )
+        self.assertEqual(first_move.status_code, 200)
+
+        second_now = first_now + timedelta(seconds=3)
+        self._set_last_move_at(game, first_now)
+        with patch("checkers.services.game_service.timezone.now", return_value=second_now):
+            second_move = self.client.post(
+                f"/api/games/{game.id}/move/",
+                {"from_row": 3, "from_col": 2, "to_row": 1, "to_col": 4},
+                format="json",
+            )
+        self.assertEqual(second_move.status_code, 200)
+
+        history_response = self.client.get(f"/api/games/{game.id}/moves/")
+        self.assertEqual(history_response.status_code, 200)
+        history_payload = self._payload(history_response)
+
+        self.assertNotIn("moves", history_payload)
+        self.assertEqual(len(history_payload["moveLog"]), 1)
+        self.assertEqual(history_payload["moveLog"][0]["notation"], "a3 x c5xe7")
+        self.assertEqual(history_payload["moveLog"][0]["from"], {"row": 5, "col": 0})
+        self.assertEqual(history_payload["moveLog"][0]["to"], {"row": 1, "col": 4})
 
     def _create_game(self) -> Game:
         response = self.client.post("/api/games/", {}, format="json")
