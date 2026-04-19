@@ -99,7 +99,7 @@ def _consume_move_time_or_fail(game: Game) -> tuple[datetime, int]:
             details={
                 "status": game.status,
                 "winner": game.winner,
-                "time_remaining": _get_current_turn_time_remaining(game),
+                "time_remaining": _seconds_to_milliseconds(_get_current_turn_time_remaining(game)),
             },
         )
 
@@ -289,13 +289,13 @@ def get_move_history(game_id: UUID) -> dict[str, object]:
         "moves": [
             {
                 "id": move.id,
-                "from_pos": move.from_pos,
-                "to_pos": move.to_pos,
+                "from_pos": _to_coord_object(move.from_pos),
+                "to_pos": _to_coord_object(move.to_pos),
                 "is_jump": move.is_jump,
-                "captured_pos": move.captured_pos,
+                "captured_pos": _to_coord_object(move.captured_pos),
                 "is_promoted": move.is_promoted,
                 "board_before": move.board_before,
-                "time_spent": move.time_spent,
+                "time_spent": _seconds_to_milliseconds(move.time_spent),
                 "created_at": move.created_at.isoformat(),
             }
             for move in moves
@@ -433,3 +433,14 @@ def _extract_pos(pos: object) -> tuple[int | None, int | None]:
     if not isinstance(pos[0], int) or not isinstance(pos[1], int):
         return None, None
     return pos[0], pos[1]
+
+
+def _to_coord_object(pos: object) -> dict[str, int] | None:
+    row, col = _extract_pos(pos)
+    if row is None or col is None:
+        return None
+    return {"row": row, "col": col}
+
+
+def _seconds_to_milliseconds(seconds: int) -> int:
+    return seconds * 1000

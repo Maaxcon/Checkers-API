@@ -42,22 +42,25 @@ class GameStateSerializer(serializers.ModelSerializer):
     def get_time_remaining(self, obj: Game) -> int:
         time_remaining_override = self.context.get("time_remaining_override")
         if time_remaining_override is not None:
-            return time_remaining_override
-        return self._get_current_turn_time(obj)
+            return self._to_milliseconds(time_remaining_override)
+        return self._to_milliseconds(self._get_current_turn_time(obj))
 
     def get_light_time_remaining(self, obj: Game) -> int:
         time_remaining_override = self.context.get("time_remaining_override")
         if time_remaining_override is not None and obj.current_turn == PLAYER_LIGHT:
-            return time_remaining_override
-        return obj.light_time_remaining
+            return self._to_milliseconds(time_remaining_override)
+        return self._to_milliseconds(obj.light_time_remaining)
 
     def get_dark_time_remaining(self, obj: Game) -> int:
         time_remaining_override = self.context.get("time_remaining_override")
         if time_remaining_override is not None and obj.current_turn == PLAYER_DARK:
-            return time_remaining_override
-        return obj.dark_time_remaining
+            return self._to_milliseconds(time_remaining_override)
+        return self._to_milliseconds(obj.dark_time_remaining)
 
     def _get_current_turn_time(self, obj: Game) -> int:
         if obj.current_turn == PLAYER_LIGHT:
             return obj.light_time_remaining
         return obj.dark_time_remaining
+
+    def _to_milliseconds(self, seconds: int) -> int:
+        return seconds * 1000

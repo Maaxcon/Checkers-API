@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -35,14 +36,15 @@ class GameTimerTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         game.refresh_from_db()
+        payload = self._payload(response)
 
         self.assertEqual(game.current_turn, PLAYER_DARK)
         self.assertEqual(game.light_time_remaining, DEFAULT_PLAYER_TIME_SECONDS - 10)
         self.assertEqual(game.dark_time_remaining, DEFAULT_PLAYER_TIME_SECONDS)
 
-        self.assertEqual(response.data["time_remaining"], DEFAULT_PLAYER_TIME_SECONDS)
-        self.assertEqual(response.data["light_time_remaining"], DEFAULT_PLAYER_TIME_SECONDS - 10)
-        self.assertEqual(response.data["dark_time_remaining"], DEFAULT_PLAYER_TIME_SECONDS)
+        self.assertEqual(payload["timeRemaining"], DEFAULT_PLAYER_TIME_SECONDS * 1000)
+        self.assertEqual(payload["lightTimeRemaining"], (DEFAULT_PLAYER_TIME_SECONDS - 10) * 1000)
+        self.assertEqual(payload["darkTimeRemaining"], DEFAULT_PLAYER_TIME_SECONDS * 1000)
 
     def test_dark_move_uses_dark_timer_and_keeps_light_timer(self) -> None:
         game = self._create_game()
@@ -68,14 +70,15 @@ class GameTimerTests(TestCase):
 
         self.assertEqual(second_move.status_code, 200)
         game.refresh_from_db()
+        second_payload = self._payload(second_move)
 
         self.assertEqual(game.current_turn, PLAYER_LIGHT)
         self.assertEqual(game.light_time_remaining, DEFAULT_PLAYER_TIME_SECONDS - 10)
         self.assertEqual(game.dark_time_remaining, DEFAULT_PLAYER_TIME_SECONDS - 5)
 
-        self.assertEqual(second_move.data["time_remaining"], DEFAULT_PLAYER_TIME_SECONDS - 10)
-        self.assertEqual(second_move.data["light_time_remaining"], DEFAULT_PLAYER_TIME_SECONDS - 10)
-        self.assertEqual(second_move.data["dark_time_remaining"], DEFAULT_PLAYER_TIME_SECONDS - 5)
+        self.assertEqual(second_payload["timeRemaining"], (DEFAULT_PLAYER_TIME_SECONDS - 10) * 1000)
+        self.assertEqual(second_payload["lightTimeRemaining"], (DEFAULT_PLAYER_TIME_SECONDS - 10) * 1000)
+        self.assertEqual(second_payload["darkTimeRemaining"], (DEFAULT_PLAYER_TIME_SECONDS - 5) * 1000)
 
     def test_timeout_finishes_game_for_current_player_only(self) -> None:
         game = self._create_game()
@@ -87,17 +90,18 @@ class GameTimerTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         game.refresh_from_db()
+        payload = self._payload(response)
 
         self.assertEqual(game.status, GAME_STATUS_FINISHED)
         self.assertEqual(game.winner, PLAYER_DARK)
         self.assertEqual(game.light_time_remaining, 0)
         self.assertEqual(game.dark_time_remaining, DEFAULT_PLAYER_TIME_SECONDS)
 
-        self.assertEqual(response.data["status"], GAME_STATUS_FINISHED)
-        self.assertEqual(response.data["winner"], PLAYER_DARK)
-        self.assertEqual(response.data["time_remaining"], 0)
-        self.assertEqual(response.data["light_time_remaining"], 0)
-        self.assertEqual(response.data["dark_time_remaining"], DEFAULT_PLAYER_TIME_SECONDS)
+        self.assertEqual(payload["status"], GAME_STATUS_FINISHED)
+        self.assertEqual(payload["winner"], PLAYER_DARK)
+        self.assertEqual(payload["timeRemaining"], 0)
+        self.assertEqual(payload["lightTimeRemaining"], 0)
+        self.assertEqual(payload["darkTimeRemaining"], DEFAULT_PLAYER_TIME_SECONDS * 1000)
 
     def test_undo_restores_time_for_player_who_moved(self) -> None:
         game = self._create_game()
@@ -114,6 +118,7 @@ class GameTimerTests(TestCase):
 
         undo_response = self.client.post(f"/api/games/{game.id}/undo/", {}, format="json")
         self.assertEqual(undo_response.status_code, 200)
+        undo_payload = self._payload(undo_response)
 
         game.refresh_from_db()
         self.assertEqual(game.status, GAME_STATUS_IN_PROGRESS)
@@ -121,23 +126,55 @@ class GameTimerTests(TestCase):
         self.assertEqual(game.light_time_remaining, DEFAULT_PLAYER_TIME_SECONDS)
         self.assertEqual(game.dark_time_remaining, DEFAULT_PLAYER_TIME_SECONDS)
 
-        self.assertEqual(undo_response.data["time_remaining"], DEFAULT_PLAYER_TIME_SECONDS)
-        self.assertEqual(undo_response.data["light_time_remaining"], DEFAULT_PLAYER_TIME_SECONDS)
-        self.assertEqual(undo_response.data["dark_time_remaining"], DEFAULT_PLAYER_TIME_SECONDS)
+        self.assertEqual(undo_payload["timeRemaining"], DEFAULT_PLAYER_TIME_SECONDS * 1000)
+        self.assertEqual(undo_payload["lightTimeRemaining"], DEFAULT_PLAYER_TIME_SECONDS * 1000)
+        self.assertEqual(undo_payload["darkTimeRemaining"], DEFAULT_PLAYER_TIME_SECONDS * 1000)
 
     def test_game_service_error_is_rendered_by_global_exception_handler(self) -> None:
         game = self._create_game()
 
         response = self.client.post(f"/api/games/{game.id}/undo/", {}, format="json")
+        payload = self._payload(response)
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.data, {"error": "No moves to undo"})
+        self.assertEqual(payload, {"error": "No moves to undo"})
+
+    def test_move_history_uses_structured_positions_and_milliseconds(self) -> None:
+        game = self._create_game()
+        fixed_now = timezone.now().replace(microsecond=0)
+        self._set_last_move_at(game, fixed_now - timedelta(seconds=10))
+
+        with patch("checkers.services.game_service.timezone.now", return_value=fixed_now):
+            move_response = self.client.post(
+                f"/api/games/{game.id}/move/",
+                {"fromRow": 5, "fromCol": 0, "toRow": 4, "toCol": 1},
+                format="json",
+            )
+        self.assertEqual(move_response.status_code, 200)
+
+        history_response = self.client.get(f"/api/games/{game.id}/moves/")
+        self.assertEqual(history_response.status_code, 200)
+        history_payload = self._payload(history_response)
+
+        self.assertEqual(history_payload["gameId"], str(game.id))
+        self.assertEqual(len(history_payload["moves"]), 1)
+
+        move = history_payload["moves"][0]
+        self.assertEqual(move["fromPos"], {"row": 5, "col": 0})
+        self.assertEqual(move["toPos"], {"row": 4, "col": 1})
+        self.assertIsNone(move["capturedPos"])
+        self.assertEqual(move["timeSpent"], 10_000)
 
     def _create_game(self) -> Game:
         response = self.client.post("/api/games/", {}, format="json")
         self.assertEqual(response.status_code, 201)
-        return Game.objects.get(id=response.data["id"])
+        payload = self._payload(response)
+        return Game.objects.get(id=payload["id"])
 
     def _set_last_move_at(self, game: Game, value) -> None:
         Game.objects.filter(id=game.id).update(last_move_at=value)
         game.refresh_from_db()
+
+    def _payload(self, response) -> dict:
+        response.render()
+        return json.loads(response.content)
