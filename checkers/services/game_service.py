@@ -78,7 +78,7 @@ def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: 
             time_spent,
         )
 
-    return _serialize_game(game, include_id=False)
+    return _serialize_game(game, include_id=False, include_move_log=True)
 
 
 def _consume_move_time_or_fail(game: Game) -> tuple[datetime, int]:
@@ -250,7 +250,7 @@ def undo_move(game_id: UUID) -> dict[str, object]:
         game.save()
         game.moves.filter(id__in=[move.id for move in turn_moves]).delete()
 
-    return _serialize_game(game, include_id=False)
+    return _serialize_game(game, include_id=False, include_move_log=True)
 
 
 def restart_game(game_id: UUID) -> dict[str, object]:
@@ -268,7 +268,7 @@ def restart_game(game_id: UUID) -> dict[str, object]:
         game.last_move_at = timezone.now()
         game.save()
 
-    return _serialize_game(game, include_id=False)
+    return _serialize_game(game, include_id=False, include_move_log=True)
 
 
 def get_move_history(game_id: UUID) -> dict[str, object]:
@@ -306,6 +306,7 @@ def _serialize_game(
     time_remaining: int | None = None,
     *,
     include_id: bool = True,
+    include_move_log: bool = False,
 ) -> dict[str, object]:
     serializer = GameStateSerializer(
         game,
@@ -315,6 +316,9 @@ def _serialize_game(
         },
     )
     payload: dict[str, object] = dict(serializer.data)
+    if include_move_log:
+        moves = list(game.moves.order_by("created_at", "id"))
+        payload["move_log"] = _build_move_log(moves)
     if include_id:
         return payload
     payload.pop("id", None)
