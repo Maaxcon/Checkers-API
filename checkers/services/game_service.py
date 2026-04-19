@@ -9,7 +9,6 @@ from django.db import transaction
 from django.utils import timezone
 
 from checkers.constants import (
-    API_STATUS_OK,
     DEFAULT_PLAYER_TIME_SECONDS,
     GAME_STATUS_FINISHED,
     GAME_STATUS_IN_PROGRESS,
@@ -79,7 +78,7 @@ def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: 
             time_spent,
         )
 
-    return _serialize_game(game, include_id=False, use_api_ok_status=True)
+    return _serialize_game(game, include_id=False)
 
 
 def _consume_move_time_or_fail(game: Game) -> tuple[datetime, int]:
@@ -251,7 +250,7 @@ def undo_move(game_id: UUID) -> dict[str, object]:
         game.save()
         game.moves.filter(id__in=[move.id for move in turn_moves]).delete()
 
-    return _serialize_game(game, include_id=False, use_api_ok_status=True)
+    return _serialize_game(game, include_id=False)
 
 
 def restart_game(game_id: UUID) -> dict[str, object]:
@@ -269,7 +268,7 @@ def restart_game(game_id: UUID) -> dict[str, object]:
         game.last_move_at = timezone.now()
         game.save()
 
-    return _serialize_game(game, include_id=False, use_api_ok_status=True)
+    return _serialize_game(game, include_id=False)
 
 
 def get_move_history(game_id: UUID) -> dict[str, object]:
@@ -307,12 +306,11 @@ def _serialize_game(
     time_remaining: int | None = None,
     *,
     include_id: bool = True,
-    use_api_ok_status: bool = False,
 ) -> dict[str, object]:
     serializer = GameStateSerializer(
         game,
         context={
-            "status_override": API_STATUS_OK if use_api_ok_status else None,
+            "status_override": None,
             "time_remaining_override": time_remaining,
         },
     )

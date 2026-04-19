@@ -14,11 +14,22 @@ from checkers.constants import (
     GAME_STATUS_IN_PROGRESS,
     PLAYER_DARK,
     PLAYER_LIGHT,
+    PLAYER_VALUES,
 )
 from checkers.models import Game
 
 
 class GameTimerTests(TestCase):
+    FRONTEND_ONLY_HIGHLIGHT_FIELDS = {
+        "validMoves",
+        "mandatoryPieces",
+        "historyHighlight",
+        "historyIndex",
+        "selected",
+        "lastMove",
+        "multiJump",
+    }
+
     def setUp(self) -> None:
         self.client = APIClient()
 
@@ -195,6 +206,34 @@ class GameTimerTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(payload, {"error": "No moves to undo"})
 
+    def test_api_payloads_do_not_expose_frontend_highlight_fields(self) -> None:
+        create_response = self.client.post("/api/games/", {}, format="json")
+        self.assertEqual(create_response.status_code, 201)
+        create_payload = self._payload(create_response)
+        self._assert_no_highlight_fields(create_payload)
+
+        game_id = create_payload["id"]
+
+        retrieve_response = self.client.get(f"/api/games/{game_id}/")
+        self.assertEqual(retrieve_response.status_code, 200)
+        retrieve_payload = self._payload(retrieve_response)
+        self._assert_no_highlight_fields(retrieve_payload)
+
+        move_response = self.client.post(
+            f"/api/games/{game_id}/move/",
+            {"from_row": 5, "from_col": 0, "to_row": 4, "to_col": 1},
+            format="json",
+        )
+        self.assertEqual(move_response.status_code, 200)
+        move_payload = self._payload(move_response)
+        self._assert_no_highlight_fields(move_payload)
+
+        history_response = self.client.get(f"/api/games/{game_id}/moves/")
+        self.assertEqual(history_response.status_code, 200)
+        history_payload = self._payload(history_response)
+        self.assertEqual(set(history_payload.keys()), {"gameId", "moveLog"})
+        self._assert_no_highlight_fields(history_payload)
+
     def test_move_history_includes_frontend_style_move_log(self) -> None:
         game = self._create_game()
         fixed_now = timezone.now().replace(microsecond=0)
@@ -266,6 +305,55 @@ class GameTimerTests(TestCase):
         self.assertEqual(history_payload["moveLog"][0]["from"], {"row": 5, "col": 0})
         self.assertEqual(history_payload["moveLog"][0]["to"], {"row": 1, "col": 4})
 
+    def test_api_contract_for_all_endpoints(self) -> None:
+        create_response = self.client.post("/api/games/", {}, format="json")
+        self.assertEqual(create_response.status_code, 201)
+        create_payload = self._payload(create_response)
+        game_id = create_payload["id"]
+        self._assert_game_state_payload(create_payload, include_id=True)
+        self.assertEqual(create_payload["status"], GAME_STATUS_IN_PROGRESS)
+
+        get_response = self.client.get(f"/api/games/{game_id}/")
+        self.assertEqual(get_response.status_code, 200)
+        get_payload = self._payload(get_response)
+        self._assert_game_state_payload(get_payload, include_id=True)
+        self.assertIn(get_payload["status"], {GAME_STATUS_IN_PROGRESS, GAME_STATUS_FINISHED})
+
+        move_response = self.client.post(
+            f"/api/games/{game_id}/move/",
+            {"fromRow": 5, "fromCol": 0, "toRow": 4, "toCol": 1},
+            format="json",
+        )
+        self.assertEqual(move_response.status_code, 200)
+        move_payload = self._payload(move_response)
+        self._assert_game_state_payload(move_payload, include_id=False)
+        self.assertIn(move_payload["status"], {GAME_STATUS_IN_PROGRESS, GAME_STATUS_FINISHED})
+
+        undo_response = self.client.post(f"/api/games/{game_id}/undo/", {}, format="json")
+        self.assertEqual(undo_response.status_code, 200)
+        undo_payload = self._payload(undo_response)
+        self._assert_game_state_payload(undo_payload, include_id=False)
+        self.assertEqual(undo_payload["status"], GAME_STATUS_IN_PROGRESS)
+
+        restart_response = self.client.post(f"/api/games/{game_id}/restart/", {}, format="json")
+        self.assertEqual(restart_response.status_code, 200)
+        restart_payload = self._payload(restart_response)
+        self._assert_game_state_payload(restart_payload, include_id=False)
+        self.assertEqual(restart_payload["status"], GAME_STATUS_IN_PROGRESS)
+
+        history_response = self.client.get(f"/api/games/{game_id}/moves/")
+        self.assertEqual(history_response.status_code, 200)
+        history_payload = self._payload(history_response)
+        self.assertEqual(set(history_payload.keys()), {"gameId", "moveLog"})
+        self.assertEqual(history_payload["gameId"], str(game_id))
+        self.assertIsInstance(history_payload["moveLog"], list)
+        if history_payload["moveLog"]:
+            entry = history_payload["moveLog"][0]
+            self.assertEqual(set(entry.keys()), {"notation", "from", "to"})
+            self.assertIsInstance(entry["notation"], str)
+            self.assertEqual(set(entry["from"].keys()), {"row", "col"})
+            self.assertEqual(set(entry["to"].keys()), {"row", "col"})
+
     def _create_game(self) -> Game:
         response = self.client.post("/api/games/", {}, format="json")
         self.assertEqual(response.status_code, 201)
@@ -275,6 +363,52 @@ class GameTimerTests(TestCase):
     def _set_last_move_at(self, game: Game, value) -> None:
         Game.objects.filter(id=game.id).update(last_move_at=value)
         game.refresh_from_db()
+
+    def _assert_no_highlight_fields(self, payload: dict) -> None:
+        for field in self.FRONTEND_ONLY_HIGHLIGHT_FIELDS:
+            self.assertNotIn(field, payload)
+
+    def _assert_game_state_payload(self, payload: dict, *, include_id: bool) -> None:
+        expected_keys = {
+            "status",
+            "board",
+            "turn",
+            "winner",
+            "timeRemaining",
+            "lightTimeRemaining",
+            "darkTimeRemaining",
+        }
+        if include_id:
+            expected_keys.add("id")
+
+        self.assertEqual(set(payload.keys()), expected_keys)
+        self._assert_no_highlight_fields(payload)
+
+        self.assertIn(payload["turn"], PLAYER_VALUES)
+        self.assertIn(payload["winner"], (None, *PLAYER_VALUES))
+        self._assert_timer_ms(payload["timeRemaining"])
+        self._assert_timer_ms(payload["lightTimeRemaining"])
+        self._assert_timer_ms(payload["darkTimeRemaining"])
+        self._assert_board_payload(payload["board"])
+
+    def _assert_timer_ms(self, value: object) -> None:
+        self.assertIsInstance(value, int)
+        self.assertGreaterEqual(value, 0)
+        self.assertEqual(value % 1000, 0)
+
+    def _assert_board_payload(self, board: object) -> None:
+        self.assertIsInstance(board, list)
+        self.assertEqual(len(board), 8)
+        for row in board:
+            self.assertIsInstance(row, list)
+            self.assertEqual(len(row), 8)
+            for cell in row:
+                if cell is None:
+                    continue
+                self.assertIsInstance(cell, dict)
+                self.assertEqual(set(cell.keys()), {"player", "isKing"})
+                self.assertIn(cell["player"], PLAYER_VALUES)
+                self.assertIsInstance(cell["isKing"], bool)
 
     def _build_multi_capture_board(self) -> list[list[dict[str, object] | None]]:
         board: list[list[dict[str, object] | None]] = [[None for _ in range(8)] for _ in range(8)]
