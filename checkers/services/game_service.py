@@ -232,31 +232,24 @@ def undo_move(game_id: UUID) -> dict[str, object]:
         game = _get_game_for_update(game_id)
         _apply_lazy_timeout(game)
         _ensure_game_in_progress(game)
-        last_move = game.moves.select_for_update().order_by("-created_at", "-id").first()
+        turn_moves, mover_player = _get_last_turn_moves_for_undo(game)
 
-        if last_move is None:
+        if not turn_moves:
             raise GameServiceError("No moves to undo")
 
-        board_before = cast(SerializedBoard, last_move.board_before)
-        from_row, from_col = last_move.from_pos
-
-        mover_player = None
-        try:
-            piece_data = board_before[from_row][from_col]
-            if piece_data:
-                mover_player = piece_data.get("player")
-        except (IndexError, KeyError, TypeError):
-            mover_player = None
+        oldest_turn_move = turn_moves[-1]
+        board_before = cast(SerializedBoard, oldest_turn_move.board_before)
+        restored_time_spent = sum(move.time_spent for move in turn_moves)
 
         game.board = board_before
         if mover_player in PLAYER_VALUES:
             game.current_turn = mover_player
-        _add_player_time_remaining(game, game.current_turn, last_move.time_spent)
+        _add_player_time_remaining(game, game.current_turn, restored_time_spent)
         game.status = GAME_STATUS_IN_PROGRESS
         game.winner = None
         game.last_move_at = timezone.now()
         game.save()
-        last_move.delete()
+        game.moves.filter(id__in=[move.id for move in turn_moves]).delete()
 
     return _serialize_game(game, include_id=False, use_api_ok_status=True)
 
@@ -406,6 +399,34 @@ def _get_forced_chain_moves(game: Game, board: Board) -> list[MoveType] | None:
 
     chain_moves = get_chain_capture_moves(board, to_row, to_col)
     return chain_moves or None
+
+
+def _get_last_turn_moves_for_undo(game: Game) -> tuple[list[MoveEntry], str | None]:
+    moves_desc = list(game.moves.select_for_update().order_by("-created_at", "-id"))
+    if not moves_desc:
+        return [], None
+
+    first_move = moves_desc[0]
+    mover_player = _extract_player_from_board(
+        cast(SerializedBoard, first_move.board_before),
+        first_move.from_pos,
+    )
+
+    # Fallback to single-step undo when player cannot be determined safely.
+    if mover_player not in PLAYER_VALUES:
+        return [first_move], mover_player
+
+    turn_moves = [first_move]
+    for move in moves_desc[1:]:
+        move_player = _extract_player_from_board(
+            cast(SerializedBoard, move.board_before),
+            move.from_pos,
+        )
+        if move_player != mover_player:
+            break
+        turn_moves.append(move)
+
+    return turn_moves, mover_player
 
 
 def _extract_player_from_board(board_json: SerializedBoard, pos: object) -> str | None:
