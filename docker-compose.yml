@@ -1,0 +1,37 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: checkers-backend
+    env_file:
+      - .env
+    environment:
+      DJANGO_ENV: production
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: 127.0.0.1,localhost,backend,frontend
+      DJANGO_CORS_ALLOW_ALL_ORIGINS: "0"
+      DJANGO_DB_PATH: /data/db.sqlite3
+      GUNICORN_WORKERS: "3"
+      GUNICORN_TIMEOUT: "120"
+    volumes:
+      - backend_data:/data
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../Checkers-React
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+    container_name: checkers-frontend
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+volumes:
+  backend_data:
