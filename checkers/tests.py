@@ -17,6 +17,8 @@ from checkers.constants import (
     PLAYER_VALUES,
 )
 from checkers.models import Game
+from checkers.services.game_service import GameServiceError
+from checkers.views import GameViewSet
 
 
 class GameTimerTests(TestCase):
@@ -219,6 +221,15 @@ class GameTimerTests(TestCase):
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(payload, {"error": "Game is already finished"})
+
+    def test_require_game_id_returns_not_found_for_malformed_uuid(self) -> None:
+        view = GameViewSet()
+
+        with self.assertRaises(GameServiceError) as error_context:
+            view._require_game_id("not-a-uuid")
+
+        self.assertEqual(error_context.exception.message, "Game not found")
+        self.assertEqual(error_context.exception.status_code, 404)
 
     def test_api_payloads_do_not_expose_frontend_highlight_fields(self) -> None:
         create_response = self.client.post("/api/games/", {}, format="json")

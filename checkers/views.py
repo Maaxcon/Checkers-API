@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from checkers.models import Game
 from .serializers import MoveRequestSerializer
 from .services.game_service import (
+    GameServiceError,
     create_game as create_game_service,
     get_game as get_game_service,
     get_move_history as get_move_history_service,
@@ -59,5 +60,8 @@ class GameViewSet(viewsets.GenericViewSet):
 
     def _require_game_id(self, pk: str | None) -> UUID:
         if pk is None:
-            raise ValueError("Game id is required")
-        return UUID(pk)
+            raise GameServiceError("Game not found", status_code=404)
+        try:
+            return UUID(pk)
+        except ValueError as error:
+            raise GameServiceError("Game not found", status_code=404) from error
