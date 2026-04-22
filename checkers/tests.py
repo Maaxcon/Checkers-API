@@ -310,13 +310,13 @@ class GameTimerTests(TestCase):
         self.assertEqual(create_response.status_code, 201)
         create_payload = self._payload(create_response)
         game_id = create_payload["id"]
-        self._assert_game_state_payload(create_payload, include_id=True)
+        self._assert_game_state_payload(create_payload)
         self.assertEqual(create_payload["status"], GAME_STATUS_IN_PROGRESS)
 
         get_response = self.client.get(f"/api/games/{game_id}/")
         self.assertEqual(get_response.status_code, 200)
         get_payload = self._payload(get_response)
-        self._assert_game_state_payload(get_payload, include_id=True)
+        self._assert_game_state_payload(get_payload)
         self.assertIn(get_payload["status"], {GAME_STATUS_IN_PROGRESS, GAME_STATUS_FINISHED})
 
         move_response = self.client.post(
@@ -326,19 +326,19 @@ class GameTimerTests(TestCase):
         )
         self.assertEqual(move_response.status_code, 200)
         move_payload = self._payload(move_response)
-        self._assert_game_state_payload(move_payload, include_id=False, include_move_log=True)
+        self._assert_game_state_payload(move_payload)
         self.assertIn(move_payload["status"], {GAME_STATUS_IN_PROGRESS, GAME_STATUS_FINISHED})
 
         undo_response = self.client.post(f"/api/games/{game_id}/undo/", {}, format="json")
         self.assertEqual(undo_response.status_code, 200)
         undo_payload = self._payload(undo_response)
-        self._assert_game_state_payload(undo_payload, include_id=False, include_move_log=True)
+        self._assert_game_state_payload(undo_payload)
         self.assertEqual(undo_payload["status"], GAME_STATUS_IN_PROGRESS)
 
         restart_response = self.client.post(f"/api/games/{game_id}/restart/", {}, format="json")
         self.assertEqual(restart_response.status_code, 200)
         restart_payload = self._payload(restart_response)
-        self._assert_game_state_payload(restart_payload, include_id=False, include_move_log=True)
+        self._assert_game_state_payload(restart_payload)
         self.assertEqual(restart_payload["status"], GAME_STATUS_IN_PROGRESS)
 
         history_response = self.client.get(f"/api/games/{game_id}/moves/")
@@ -368,8 +368,9 @@ class GameTimerTests(TestCase):
         for field in self.FRONTEND_ONLY_HIGHLIGHT_FIELDS:
             self.assertNotIn(field, payload)
 
-    def _assert_game_state_payload(self, payload: dict, *, include_id: bool, include_move_log: bool = False) -> None:
+    def _assert_game_state_payload(self, payload: dict) -> None:
         expected_keys = {
+            "id",
             "status",
             "board",
             "turn",
@@ -377,11 +378,8 @@ class GameTimerTests(TestCase):
             "timeRemaining",
             "lightTimeRemaining",
             "darkTimeRemaining",
+            "moveLog",
         }
-        if include_id:
-            expected_keys.add("id")
-        if include_move_log:
-            expected_keys.add("moveLog")
 
         self.assertEqual(set(payload.keys()), expected_keys)
         self._assert_no_highlight_fields(payload)
@@ -392,8 +390,7 @@ class GameTimerTests(TestCase):
         self._assert_timer_ms(payload["lightTimeRemaining"])
         self._assert_timer_ms(payload["darkTimeRemaining"])
         self._assert_board_payload(payload["board"])
-        if include_move_log:
-            self._assert_move_log_payload(payload["moveLog"])
+        self._assert_move_log_payload(payload["moveLog"])
 
     def _assert_timer_ms(self, value: object) -> None:
         self.assertIsInstance(value, int)
