@@ -46,14 +46,13 @@ def create_game() -> dict[str, object]:
 
 def get_game(game_id: UUID) -> dict[str, object]:
     game = _get_game(game_id)
-    displayed_time_remaining = _apply_lazy_timeout(game)
-    return _serialize_game(game, time_remaining=displayed_time_remaining)
+    _apply_lazy_timeout(game)
+    return _serialize_game(game)
 
 
 def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: int) -> dict[str, object]:
     with transaction.atomic():
         game = _get_game_for_update(game_id)
-        _apply_lazy_timeout(game)
         _ensure_game_in_progress(game)
 
         now, time_spent = _consume_move_time_or_fail(game)
@@ -303,18 +302,11 @@ def _ensure_game_in_progress(game: Game) -> None:
 
 def _serialize_game(
     game: Game,
-    time_remaining: int | None = None,
     *,
     include_id: bool = True,
     include_move_log: bool = False,
 ) -> dict[str, object]:
-    serializer = GameStateSerializer(
-        game,
-        context={
-            "status_override": None,
-            "time_remaining_override": time_remaining,
-        },
-    )
+    serializer = GameStateSerializer(game)
     payload: dict[str, object] = dict(serializer.data)
     if include_move_log:
         moves = list(game.moves.order_by("created_at", "id"))
@@ -325,21 +317,23 @@ def _serialize_game(
     return payload
 
 
-def _apply_lazy_timeout(game: Game) -> int:
+def _apply_lazy_timeout(game: Game) -> None:
     if game.status != GAME_STATUS_IN_PROGRESS:
-        return _get_current_turn_time_remaining(game)
+        return
 
     now = timezone.now()
     elapsed = max(0, int((now - game.last_move_at).total_seconds()))
+    if elapsed == 0:
+        return
+
     time_remaining = max(0, _get_current_turn_time_remaining(game) - elapsed)
+    _set_current_turn_time_remaining(game, time_remaining)
     if time_remaining == 0:
-        _set_current_turn_time_remaining(game, 0)
         game.status = GAME_STATUS_FINISHED
         game.winner = get_opponent(game.current_turn)
-        game.last_move_at = now
-        game.save()
 
-    return time_remaining
+    game.last_move_at = now
+    game.save()
 
 
 def _get_current_turn_time_remaining(game: Game) -> int:

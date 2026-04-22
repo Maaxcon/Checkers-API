@@ -14,7 +14,7 @@ class MoveRequestSerializer(serializers.Serializer):
 
 class GameStateSerializer(serializers.ModelSerializer):
     turn = serializers.IntegerField(source="current_turn", read_only=True)
-    status = serializers.SerializerMethodField()
+    status = serializers.CharField(read_only=True)
     time_remaining = serializers.SerializerMethodField()
     light_time_remaining = serializers.SerializerMethodField()
     dark_time_remaining = serializers.SerializerMethodField()
@@ -33,28 +33,13 @@ class GameStateSerializer(serializers.ModelSerializer):
         )
         read_only_fields = fields
 
-    def get_status(self, obj: Game) -> str:
-        status_override = self.context.get("status_override")
-        if status_override is not None:
-            return status_override
-        return obj.status
-
     def get_time_remaining(self, obj: Game) -> int:
-        time_remaining_override = self.context.get("time_remaining_override")
-        if time_remaining_override is not None:
-            return self._to_milliseconds(time_remaining_override)
         return self._to_milliseconds(self._get_current_turn_time(obj))
 
     def get_light_time_remaining(self, obj: Game) -> int:
-        time_remaining_override = self.context.get("time_remaining_override")
-        if time_remaining_override is not None and obj.current_turn == PLAYER_LIGHT:
-            return self._to_milliseconds(time_remaining_override)
         return self._to_milliseconds(obj.light_time_remaining)
 
     def get_dark_time_remaining(self, obj: Game) -> int:
-        time_remaining_override = self.context.get("time_remaining_override")
-        if time_remaining_override is not None and obj.current_turn == PLAYER_DARK:
-            return self._to_milliseconds(time_remaining_override)
         return self._to_milliseconds(obj.dark_time_remaining)
 
     def _get_current_turn_time(self, obj: Game) -> int:
