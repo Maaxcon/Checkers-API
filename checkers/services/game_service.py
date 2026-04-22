@@ -297,7 +297,7 @@ def _get_game(game_id: UUID) -> Game:
 
 def _ensure_game_in_progress(game: Game) -> None:
     if game.status != GAME_STATUS_IN_PROGRESS:
-        raise GameServiceError("Game is already finished")
+        raise GameServiceError("Game is already finished", status_code=409)
 
 
 def _serialize_game(game: Game) -> dict[str, object]:

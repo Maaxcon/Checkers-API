@@ -206,6 +206,20 @@ class GameTimerTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(payload, {"error": "No moves to undo"})
 
+    def test_move_on_finished_game_returns_conflict(self) -> None:
+        game = self._create_game()
+        Game.objects.filter(id=game.id).update(status=GAME_STATUS_FINISHED, winner=PLAYER_DARK)
+
+        response = self.client.post(
+            f"/api/games/{game.id}/move/",
+            {"from_row": 5, "from_col": 0, "to_row": 4, "to_col": 1},
+            format="json",
+        )
+        payload = self._payload(response)
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(payload, {"error": "Game is already finished"})
+
     def test_api_payloads_do_not_expose_frontend_highlight_fields(self) -> None:
         create_response = self.client.post("/api/games/", {}, format="json")
         self.assertEqual(create_response.status_code, 201)
