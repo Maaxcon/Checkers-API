@@ -33,6 +33,8 @@ Open app:
 
 - Frontend: `http://localhost:8080`
 - API (through frontend proxy): `http://localhost:8080/api/`
+- Django admin (through frontend proxy): `http://localhost:8080/admin/`
+- django-rq dashboard (through frontend proxy): `http://localhost:8080/django-rq/`
 
 Stop:
 
@@ -72,5 +74,8 @@ docker compose -f docker-compose.backend-only.yml down
 ## Notes
 
 - Backend DB is persisted in Docker volume `backend_data`.
+- Redis queue data is persisted in Docker volume `redis_data`.
 - Frontend container proxies `/api/*` to `backend:8000`, so browser uses one origin.
+- Frontend container also proxies `/admin/*` and `/django-rq/*` to backend.
 - Backend runs migrations automatically at container startup.
+- Worker runs in a separate container from the same backend image (`python manage.py rqworker default`).
