@@ -6,7 +6,17 @@ DB_DIR="$(dirname "$DB_PATH")"
 
 mkdir -p "$DB_DIR"
 
-python manage.py migrate --noinput
+if [ "${RUN_MIGRATIONS:-1}" = "1" ]; then
+  python manage.py migrate --noinput
+fi
+
+if [ "${RUN_COLLECTSTATIC:-1}" = "1" ]; then
+  python manage.py collectstatic --noinput
+fi
+
+if [ "$#" -gt 0 ]; then
+  exec "$@"
+fi
 
 exec gunicorn core.wsgi:application \
   --bind 0.0.0.0:8000 \
