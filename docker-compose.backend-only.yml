@@ -1,4 +1,12 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: checkers-api-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
   backend:
     build:
       context: .
@@ -10,14 +18,42 @@ services:
       DJANGO_ENV: production
       DJANGO_DEBUG: "0"
       DJANGO_ALLOWED_HOSTS: 127.0.0.1,localhost,backend,frontend
+      DJANGO_CSRF_TRUSTED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
       DJANGO_CORS_ALLOW_ALL_ORIGINS: "0"
       DJANGO_DB_PATH: /data/db.sqlite3
+      RQ_REDIS_URL: redis://redis:6379/0
       GUNICORN_WORKERS: "3"
       GUNICORN_TIMEOUT: "120"
     volumes:
       - backend_data:/data
+    depends_on:
+      - redis
     expose:
       - "8000"
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: checkers-api-worker
+    command: ["python", "manage.py", "rqworker", "default"]
+    env_file:
+      - .env
+    environment:
+      DJANGO_ENV: production
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: 127.0.0.1,localhost,backend,frontend
+      DJANGO_CSRF_TRUSTED_ORIGINS: http://localhost:8080,http://127.0.0.1:8080
+      DJANGO_CORS_ALLOW_ALL_ORIGINS: "0"
+      DJANGO_DB_PATH: /data/db.sqlite3
+      RQ_REDIS_URL: redis://redis:6379/0
+      RUN_MIGRATIONS: "0"
+      RUN_COLLECTSTATIC: "0"
+    volumes:
+      - backend_data:/data
+    depends_on:
+      - redis
     restart: unless-stopped
 
   frontend:
@@ -31,3 +67,4 @@ services:
 
 volumes:
   backend_data:
+  redis_data:
