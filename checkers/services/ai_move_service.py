@@ -3,12 +3,14 @@ from __future__ import annotations
 from typing import cast
 
 from checkers.ai.factory import build_checkers_openrouter_provider_chain
-from checkers.ai.models import CheckersAIMoveContext, CheckersAIMoveDecision
 from checkers.ai.contracts import CheckersAIMoveProvider
-from checkers.constants import PLAYER_VALUES
+from checkers.ai.models import CheckersAIMoveContext, CheckersAIMoveDecision
 from checkers.models import Game
 from checkers.services.converters import SerializedBoard, json_to_board
-from checkers.services.logic import get_chain_capture_moves, get_legal_moves_for_player
+from checkers.services.logic import get_legal_moves_for_player
+from checkers.services.move_entry_utils import (
+    resolve_checkers_forced_chain_moves as _get_forced_chain_moves,
+)
 from checkers.services.types import Board, MoveType, Player
 
 
@@ -52,47 +54,3 @@ def _resolve_legal_moves_for_ai_turn(game: Game, board: Board) -> list[MoveType]
 
     player = cast(Player, game.current_turn)
     return get_legal_moves_for_player(board, player)
-
-
-def _get_forced_chain_moves(game: Game, board: Board) -> list[MoveType] | None:
-    last_move = game.moves.order_by("-created_at", "-id").first()
-    if last_move is None or not last_move.is_jump:
-        return None
-
-    mover_player = _extract_player_from_board(cast(SerializedBoard, last_move.board_before), last_move.from_pos)
-    if mover_player != game.current_turn:
-        return None
-
-    to_row, to_col = _extract_pos(last_move.to_pos)
-    if to_row is None or to_col is None:
-        return None
-
-    chain_moves = get_chain_capture_moves(board, to_row, to_col)
-    return chain_moves or None
-
-
-def _extract_player_from_board(board_json: SerializedBoard, pos: object) -> Player | None:
-    row, col = _extract_pos(pos)
-    if row is None or col is None:
-        return None
-
-    try:
-        piece = board_json[row][col]
-    except (IndexError, TypeError):
-        return None
-
-    if piece is None:
-        return None
-
-    player = piece["player"]
-    if player in PLAYER_VALUES:
-        return cast(Player, player)
-    return None
-
-
-def _extract_pos(pos: object) -> tuple[int | None, int | None]:
-    if not isinstance(pos, (list, tuple)) or len(pos) != 2:
-        return None, None
-    if not isinstance(pos[0], int) or not isinstance(pos[1], int):
-        return None, None
-    return pos[0], pos[1]
