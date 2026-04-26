@@ -1,4 +1,4 @@
-from checkers.ai.contracts import AIProvider
+from checkers.ai.contracts import AIMoveProvider
 from checkers.ai.models import (
     AIMoveContext,
     AIMoveDecision,
@@ -11,7 +11,7 @@ from checkers.ai.models import (
 )
 
 __all__ = [
-    "AIProvider",
+    "AIMoveProvider",
     "AIMoveContext",
     "AIMoveDecision",
     "ProviderError",
