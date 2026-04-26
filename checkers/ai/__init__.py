@@ -1,3 +1,4 @@
+from checkers.ai.config import CheckersOpenRouterConfig, load_checkers_openrouter_config
 from checkers.ai.contracts import CheckersAIMoveProvider
 from checkers.ai.models import (
     CheckersAIMoveContext,
@@ -13,6 +14,8 @@ from checkers.ai.models import (
 )
 
 __all__ = [
+    "CheckersOpenRouterConfig",
+    "load_checkers_openrouter_config",
     "CheckersAIMoveProvider",
     "CheckersAIMoveContext",
     "CheckersAIMoveDecision",
