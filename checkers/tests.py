@@ -8,7 +8,6 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from checkers.ai.models import CheckersAIMoveDecision, CheckersAIProviderUnavailableError
 from checkers.constants import (
     DEFAULT_PLAYER_TIME_SECONDS,
     GAME_STATUS_FINISHED,
@@ -18,6 +17,7 @@ from checkers.constants import (
     PLAYER_VALUES,
 )
 from checkers.models import Game
+from checkers.services.ai_move_queue_service import CheckersAIMoveEnqueueResult, CheckersAIMoveJobStatus
 from checkers.services.game_service import GameServiceError
 from checkers.views import GameViewSet
 
@@ -331,12 +331,16 @@ class GameTimerTests(TestCase):
         self.assertEqual(history_payload["moveLog"][0]["from"], {"row": 5, "col": 0})
         self.assertEqual(history_payload["moveLog"][0]["to"], {"row": 1, "col": 4})
 
-    def test_ai_move_endpoint_applies_move_through_service_layer(self) -> None:
+    def test_ai_move_endpoint_enqueues_background_job(self) -> None:
         game = self._create_game()
 
         with patch(
-            "checkers.services.game_service.choose_checkers_ai_move",
-            return_value=CheckersAIMoveDecision(from_row=5, from_col=0, to_row=4, to_col=1),
+            "checkers.views.enqueue_checkers_ai_move_task",
+            return_value=CheckersAIMoveEnqueueResult(
+                job_id="job-123",
+                status="queued",
+                ai_request_id="ai-job-1",
+            ),
         ):
             response = self.client.post(
                 f"/api/games/{game.id}/ai-move/",
@@ -344,29 +348,37 @@ class GameTimerTests(TestCase):
                 format="json",
             )
 
-        self.assertEqual(response.status_code, 200)
-        game.refresh_from_db()
-        self.assertEqual(game.current_turn, PLAYER_DARK)
-        self.assertEqual(game.moves.count(), 1)
-        self.assertEqual(game.moves.first().ai_request_id, "ai-job-1")
+        self.assertEqual(response.status_code, 202)
+        payload = self._payload(response)
+        self.assertEqual(payload["jobId"], "job-123")
+        self.assertEqual(payload["status"], "queued")
+        self.assertEqual(payload["aiRequestId"], "ai-job-1")
 
-    def test_ai_move_endpoint_maps_provider_unavailable_error(self) -> None:
+    def test_ai_move_status_endpoint_returns_finished_job_payload(self) -> None:
         game = self._create_game()
 
-        with patch(
-            "checkers.services.game_service.choose_checkers_ai_move",
-            side_effect=CheckersAIProviderUnavailableError("checkers-openrouter:model-a", "network"),
-        ):
-            response = self.client.post(
-                f"/api/games/{game.id}/ai-move/",
-                {"difficulty": "medium"},
-                format="json",
-            )
+        base_status = CheckersAIMoveJobStatus(
+            job_id="job-777",
+            status="finished",
+            is_finished=True,
+            is_failed=False,
+            result={"status": GAME_STATUS_IN_PROGRESS},
+            error=None,
+        )
 
-        self.assertEqual(response.status_code, 503)
+        with patch(
+            "checkers.views.get_checkers_ai_move_task_status",
+            return_value=base_status,
+        ):
+            response = self.client.get(f"/api/games/{game.id}/ai-move/status/job-777/")
+
+        self.assertEqual(response.status_code, 200)
         payload = self._payload(response)
-        self.assertEqual(payload["error"], "AI provider unavailable")
-        self.assertEqual(payload["provider"], "checkers-openrouter:model-a")
+        self.assertEqual(payload["jobId"], "job-777")
+        self.assertEqual(payload["status"], "finished")
+        self.assertTrue(payload["isFinished"])
+        self.assertFalse(payload["isFailed"])
+        self.assertEqual(payload["result"], {"status": GAME_STATUS_IN_PROGRESS})
 
     def test_api_contract_for_all_endpoints(self) -> None:
         create_response = self.client.post("/api/games/", {}, format="json")
