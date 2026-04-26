@@ -6,12 +6,13 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from checkers.models import Game
-from .serializers import MoveRequestSerializer
+from .serializers import AIMoveRequestSerializer, MoveRequestSerializer
 from .services.game_service import (
     GameServiceError,
     create_game as create_game_service,
     get_game as get_game_service,
     get_move_history as get_move_history_service,
+    make_ai_move as make_ai_move_service,
     make_move as make_move_service,
     restart_game as restart_game_service,
     undo_move as undo_move_service,
@@ -38,6 +39,15 @@ class GameViewSet(viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
 
         payload = make_move_service(game_id, **serializer.validated_data)
+        return Response(payload, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="ai-move")
+    def ai_move(self, request: Request, pk: str | None = None) -> Response:
+        game_id = self._require_game_id(pk)
+        serializer = AIMoveRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        payload = make_ai_move_service(game_id, **serializer.validated_data)
         return Response(payload, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"])

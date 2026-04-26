@@ -14,6 +14,11 @@ class MoveRequestSerializer(serializers.Serializer):
     ai_request_id = serializers.CharField(max_length=64, required=False, allow_blank=False)
 
 
+class AIMoveRequestSerializer(serializers.Serializer):
+    difficulty = serializers.ChoiceField(choices=("easy", "medium", "hard"), default="medium", required=False)
+    ai_request_id = serializers.CharField(max_length=64, required=False, allow_blank=False)
+
+
 class GameStateSerializer(serializers.ModelSerializer):
     turn = serializers.IntegerField(source="current_turn", read_only=True)
     status = serializers.CharField(read_only=True)

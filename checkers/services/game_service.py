@@ -8,6 +8,13 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
+from checkers.ai.models import (
+    CheckersAIProviderError,
+    CheckersAIProviderIllegalMoveError,
+    CheckersAIProviderInvalidResponseError,
+    CheckersAIProviderTimeoutError,
+    CheckersAIProviderUnavailableError,
+)
 from checkers.constants import (
     DEFAULT_PLAYER_TIME_SECONDS,
     GAME_STATUS_FINISHED,
@@ -17,6 +24,7 @@ from checkers.constants import (
     PLAYER_VALUES,
 )
 from checkers.serializers import GameStateSerializer
+from checkers.services.ai_move_service import choose_checkers_ai_move
 from checkers.services.constants import MOVE_TYPE_CAPTURE
 from checkers.models import Game, MoveEntry
 from checkers.services.board import create_initial_board
@@ -97,6 +105,65 @@ def make_move(
         )
 
     return _serialize_game(game)
+
+
+def make_ai_move(
+    game_id: UUID,
+    difficulty: str,
+    ai_request_id: str | None = None,
+) -> dict[str, object]:
+    game = _get_game(game_id)
+    _apply_lazy_timeout(game)
+    _ensure_game_in_progress(game)
+    expected_state_version = game.state_version
+
+    if ai_request_id is not None:
+        ai_request_id = ai_request_id.strip()
+        if not ai_request_id:
+            ai_request_id = None
+
+    try:
+        decision = choose_checkers_ai_move(game=game, difficulty=difficulty)
+    except CheckersAIProviderTimeoutError as error:
+        raise GameServiceError(
+            "AI provider timeout",
+            status_code=504,
+            details={"provider": error.provider},
+        ) from error
+    except CheckersAIProviderUnavailableError as error:
+        raise GameServiceError(
+            "AI provider unavailable",
+            status_code=503,
+            details={"provider": error.provider},
+        ) from error
+    except CheckersAIProviderInvalidResponseError as error:
+        raise GameServiceError(
+            "AI provider returned invalid response",
+            status_code=502,
+            details={"provider": error.provider},
+        ) from error
+    except CheckersAIProviderIllegalMoveError as error:
+        raise GameServiceError(
+            "AI provider returned illegal move",
+            status_code=502,
+            details={"provider": error.provider},
+        ) from error
+    except CheckersAIProviderError as error:
+        raise GameServiceError(
+            "AI provider error",
+            status_code=502,
+            details={"provider": error.provider},
+        ) from error
+
+    return make_move(
+        game_id=game_id,
+        from_row=decision.from_row,
+        from_col=decision.from_col,
+        to_row=decision.to_row,
+        to_col=decision.to_col,
+        expected_state_version=expected_state_version,
+        ai_request_id=ai_request_id,
+    )
 
 
 def _consume_move_time_or_fail(game: Game) -> tuple[datetime, int]:

@@ -8,6 +8,7 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from checkers.ai.models import CheckersAIMoveDecision, CheckersAIProviderUnavailableError
 from checkers.constants import (
     DEFAULT_PLAYER_TIME_SECONDS,
     GAME_STATUS_FINISHED,
@@ -329,6 +330,43 @@ class GameTimerTests(TestCase):
         self.assertEqual(history_payload["moveLog"][0]["notation"], "a3 x c5xe7")
         self.assertEqual(history_payload["moveLog"][0]["from"], {"row": 5, "col": 0})
         self.assertEqual(history_payload["moveLog"][0]["to"], {"row": 1, "col": 4})
+
+    def test_ai_move_endpoint_applies_move_through_service_layer(self) -> None:
+        game = self._create_game()
+
+        with patch(
+            "checkers.services.game_service.choose_checkers_ai_move",
+            return_value=CheckersAIMoveDecision(from_row=5, from_col=0, to_row=4, to_col=1),
+        ):
+            response = self.client.post(
+                f"/api/games/{game.id}/ai-move/",
+                {"difficulty": "medium", "aiRequestId": "ai-job-1"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        game.refresh_from_db()
+        self.assertEqual(game.current_turn, PLAYER_DARK)
+        self.assertEqual(game.moves.count(), 1)
+        self.assertEqual(game.moves.first().ai_request_id, "ai-job-1")
+
+    def test_ai_move_endpoint_maps_provider_unavailable_error(self) -> None:
+        game = self._create_game()
+
+        with patch(
+            "checkers.services.game_service.choose_checkers_ai_move",
+            side_effect=CheckersAIProviderUnavailableError("checkers-openrouter:model-a", "network"),
+        ):
+            response = self.client.post(
+                f"/api/games/{game.id}/ai-move/",
+                {"difficulty": "medium"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 503)
+        payload = self._payload(response)
+        self.assertEqual(payload["error"], "AI provider unavailable")
+        self.assertEqual(payload["provider"], "checkers-openrouter:model-a")
 
     def test_api_contract_for_all_endpoints(self) -> None:
         create_response = self.client.post("/api/games/", {}, format="json")
