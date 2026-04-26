@@ -142,29 +142,49 @@ class CheckersOpenRouterProvider(CheckersAIMoveProvider):
         if not isinstance(message, dict):
             raise CheckersAIProviderInvalidResponseError(self.provider_name, "Missing message in choice")
 
-        if "content" not in message:
-            raise CheckersAIProviderInvalidResponseError(self.provider_name, "Missing content in message")
+        if "content" in message and message["content"] is not None:
+            return message["content"]
 
-        return message["content"]
+        tool_calls = message.get("tool_calls")
+        if isinstance(tool_calls, list) and tool_calls:
+            return tool_calls
+
+        function_call = message.get("function_call")
+        if isinstance(function_call, dict):
+            return function_call
+
+        if "content" in message:
+            return message["content"]
+
+        raise CheckersAIProviderInvalidResponseError(self.provider_name, "Missing content in message")
 
     def _parse_content_to_object(self, content: JSONValue) -> dict[str, JSONValue]:
         if isinstance(content, dict):
-            return content
+            if self._contains_decision_fields(content):
+                return content
+
+            nested_content = content.get("content")
+            if isinstance(nested_content, (dict, list, str)):
+                return self._parse_content_to_object(nested_content)
+
+            text_value = self._extract_text_from_content_part(content)
+            if text_value is not None:
+                return self._parse_json_object_from_text(text_value)
+
+            raise CheckersAIProviderInvalidResponseError(self.provider_name, "Unsupported message content format")
 
         if isinstance(content, str):
-            cleaned = self._strip_code_fence(content)
-            try:
-                parsed = json.loads(cleaned)
-            except json.JSONDecodeError as error:
-                raise CheckersAIProviderInvalidResponseError(
-                    self.provider_name,
-                    "Message content is not valid JSON",
-                ) from error
+            return self._parse_json_object_from_text(content)
 
-            if not isinstance(parsed, dict):
-                raise CheckersAIProviderInvalidResponseError(self.provider_name, "Parsed content must be JSON object")
-
-            return parsed
+        if isinstance(content, list):
+            text_chunks = [
+                text
+                for text in (self._extract_text_from_content_part(part) for part in content)
+                if text is not None and text.strip()
+            ]
+            if not text_chunks:
+                raise CheckersAIProviderInvalidResponseError(self.provider_name, "Unsupported message content format")
+            return self._parse_json_object_from_text("\n".join(text_chunks))
 
         raise CheckersAIProviderInvalidResponseError(self.provider_name, "Unsupported message content format")
 
@@ -191,3 +211,78 @@ class CheckersOpenRouterProvider(CheckersAIMoveProvider):
 
     def _is_retryable_http_status(self, status_code: int) -> bool:
         return status_code == 408 or status_code == 429 or status_code >= 500
+
+    def _parse_json_object_from_text(self, raw_text: str) -> dict[str, JSONValue]:
+        cleaned = self._strip_code_fence(raw_text)
+        try:
+            parsed = json.loads(cleaned)
+        except json.JSONDecodeError as error:
+            raise CheckersAIProviderInvalidResponseError(
+                self.provider_name,
+                "Message content is not valid JSON",
+            ) from error
+
+        if not isinstance(parsed, dict):
+            raise CheckersAIProviderInvalidResponseError(self.provider_name, "Parsed content must be JSON object")
+        return parsed
+
+    def _contains_decision_fields(self, data: dict[str, JSONValue]) -> bool:
+        expected_keys = ("from_row", "from_col", "to_row", "to_col")
+        camel_keys = ("fromRow", "fromCol", "toRow", "toCol")
+        return all(key in data for key in expected_keys) or all(key in data for key in camel_keys)
+
+    def _extract_text_from_content_part(self, part: JSONValue) -> str | None:
+        if isinstance(part, str):
+            return part
+
+        if isinstance(part, dict):
+            text_value = part.get("text")
+            if isinstance(text_value, str):
+                return text_value
+            if isinstance(text_value, dict):
+                text_inner_value = text_value.get("value")
+                if isinstance(text_inner_value, str):
+                    return text_inner_value
+
+            content_value = part.get("content")
+            if isinstance(content_value, str):
+                return content_value
+            if isinstance(content_value, list):
+                nested_text = [
+                    text
+                    for text in (self._extract_text_from_content_part(item) for item in content_value)
+                    if text is not None and text.strip()
+                ]
+                if nested_text:
+                    return "\n".join(nested_text)
+
+            json_value = part.get("json")
+            if isinstance(json_value, dict):
+                return json.dumps(json_value)
+
+            arguments_value = part.get("arguments")
+            if isinstance(arguments_value, str):
+                return arguments_value
+            if isinstance(arguments_value, dict):
+                return json.dumps(arguments_value)
+
+            function_value = part.get("function")
+            if isinstance(function_value, dict):
+                function_arguments = function_value.get("arguments")
+                if isinstance(function_arguments, str):
+                    return function_arguments
+                if isinstance(function_arguments, dict):
+                    return json.dumps(function_arguments)
+
+            return None
+
+        if isinstance(part, list):
+            nested_text = [
+                text
+                for text in (self._extract_text_from_content_part(item) for item in part)
+                if text is not None and text.strip()
+            ]
+            if nested_text:
+                return "\n".join(nested_text)
+
+        return None
