@@ -13,6 +13,7 @@ from checkers.ai.contracts import CheckersAIMoveProvider
 from checkers.ai.models import (
     CheckersAIMoveContext,
     CheckersAIMoveDecision,
+    CheckersAIProviderIllegalMoveError,
     CheckersAIProviderInvalidResponseError,
     CheckersAIProviderResult,
     CheckersAIProviderTimeoutError,
@@ -49,6 +50,7 @@ class CheckersOpenRouterProvider(CheckersAIMoveProvider):
             try:
                 raw_response = self.adapter.create_chat_completion(payload)
                 decision = self._extract_decision(raw_response)
+                self._validate_decision(context, decision)
                 return CheckersAIProviderResult(
                     provider=self.provider_name,
                     decision=decision,
@@ -168,7 +170,7 @@ class CheckersOpenRouterProvider(CheckersAIMoveProvider):
 
     def _read_int(self, data: dict[str, JSONValue], snake_key: str, camel_key: str) -> int:
         value = data.get(snake_key, data.get(camel_key))
-        if not isinstance(value, int):
+        if not isinstance(value, int) or isinstance(value, bool):
             raise CheckersAIProviderInvalidResponseError(self.provider_name, f"Field {snake_key} must be int")
         return value
 
@@ -189,3 +191,16 @@ class CheckersOpenRouterProvider(CheckersAIMoveProvider):
 
     def _is_retryable_http_status(self, status_code: int) -> bool:
         return status_code == 408 or status_code == 429 or status_code >= 500
+
+    def _validate_decision(self, context: CheckersAIMoveContext, decision: CheckersAIMoveDecision) -> None:
+        if decision in context.legal_moves:
+            return
+
+        raise CheckersAIProviderIllegalMoveError(
+            self.provider_name,
+            (
+                "Model returned illegal move: "
+                f"from=({decision.from_row},{decision.from_col}) "
+                f"to=({decision.to_row},{decision.to_col})"
+            ),
+        )
