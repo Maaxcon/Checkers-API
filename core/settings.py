@@ -41,6 +41,15 @@ def env_int(name: str, default: int) -> int:
         return default
 
 
+def env_samesite(name: str, default: str) -> str:
+    raw = os.getenv(name, default).strip().lower()
+    if raw == "none":
+        return "None"
+    if raw == "strict":
+        return "Strict"
+    return "Lax"
+
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-insecure-secret-key-change-me")
 
 # SECURITY WARNING: don't run with debug turned on in production!
@@ -169,10 +178,17 @@ if not CSRF_TRUSTED_ORIGINS and DEBUG:
         "http://127.0.0.1:8080",
     ]
 
-CSRF_COOKIE_SAMESITE = "None"
-CSRF_COOKIE_SECURE = False
-SESSION_COOKIE_SAMESITE = "None"
-SESSION_COOKIE_SECURE = False
+CSRF_COOKIE_SAMESITE = env_samesite("DJANGO_CSRF_COOKIE_SAMESITE", "Lax")
+CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", default=False)
+SESSION_COOKIE_SAMESITE = env_samesite("DJANGO_SESSION_COOKIE_SAMESITE", "Lax")
+SESSION_COOKIE_SECURE = env_bool("DJANGO_SESSION_COOKIE_SECURE", default=False)
+
+# Browsers reject SameSite=None cookies without Secure.
+# For local HTTP development, prefer Lax unless Secure is explicitly enabled.
+if CSRF_COOKIE_SAMESITE == "None" and not CSRF_COOKIE_SECURE:
+    CSRF_COOKIE_SAMESITE = "Lax"
+if SESSION_COOKIE_SAMESITE == "None" and not SESSION_COOKIE_SECURE:
+    SESSION_COOKIE_SAMESITE = "Lax"
 
 REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "checkers.exception_handler.custom_exception_handler",
