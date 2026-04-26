@@ -354,6 +354,16 @@ class GameTimerTests(TestCase):
         self.assertEqual(payload["status"], "queued")
         self.assertEqual(payload["aiRequestId"], "ai-job-1")
 
+    def test_ai_move_endpoint_requires_ai_request_id(self) -> None:
+        game = self._create_game()
+        response = self.client.post(
+            f"/api/games/{game.id}/ai-move/",
+            {"difficulty": "medium"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
     def test_ai_move_status_endpoint_returns_finished_job_payload(self) -> None:
         game = self._create_game()
 

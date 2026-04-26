@@ -16,7 +16,7 @@ class MoveRequestSerializer(serializers.Serializer):
 
 class AIMoveRequestSerializer(serializers.Serializer):
     difficulty = serializers.ChoiceField(choices=("easy", "medium", "hard"), default="medium", required=False)
-    ai_request_id = serializers.CharField(max_length=64, required=False, allow_blank=False)
+    ai_request_id = serializers.CharField(max_length=64, required=True, allow_blank=False)
 
 
 class GameStateSerializer(serializers.ModelSerializer):

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import django_rq
 from redis.exceptions import RedisError
@@ -33,11 +33,10 @@ class CheckersAIMoveJobStatus:
 def enqueue_checkers_ai_move_task(
     game_id: UUID,
     difficulty: str,
-    ai_request_id: str | None = None,
+    ai_request_id: str,
 ) -> CheckersAIMoveEnqueueResult:
     _ensure_game_exists(game_id)
-    normalized_ai_request_id = _normalize_ai_request_id(ai_request_id)
-    resolved_ai_request_id = normalized_ai_request_id or f"ai-{uuid4().hex}"
+    resolved_ai_request_id = _normalize_ai_request_id(ai_request_id)
 
     try:
         queue = django_rq.get_queue("default")
@@ -87,13 +86,10 @@ def _ensure_game_exists(game_id: UUID) -> None:
         raise GameServiceError("Game not found", status_code=404)
 
 
-def _normalize_ai_request_id(ai_request_id: str | None) -> str | None:
-    if ai_request_id is None:
-        return None
-
+def _normalize_ai_request_id(ai_request_id: str) -> str:
     cleaned = ai_request_id.strip()
     if not cleaned:
-        return None
+        raise GameServiceError("ai_request_id is required", status_code=400)
     return cleaned
 
 

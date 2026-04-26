@@ -115,20 +115,18 @@ def make_move(
 def make_ai_move(
     game_id: UUID,
     difficulty: str,
-    ai_request_id: str | None = None,
+    ai_request_id: str,
 ) -> dict[str, object]:
     game = _get_game(game_id)
     _apply_lazy_timeout(game)
     _ensure_game_in_progress(game)
     expected_state_version = game.state_version
-
-    if ai_request_id is not None:
-        ai_request_id = ai_request_id.strip()
-        if not ai_request_id:
-            ai_request_id = None
+    resolved_ai_request_id = _resolve_required_ai_request_id(ai_request_id)
 
     try:
         decision = choose_checkers_ai_move(game=game, difficulty=difficulty)
+    except ValueError as error:
+        raise _map_ai_configuration_or_validation_error(error) from error
     except CheckersAIProviderTimeoutError as error:
         raise GameServiceError(
             "AI provider timeout",
@@ -167,7 +165,7 @@ def make_ai_move(
         to_row=decision.to_row,
         to_col=decision.to_col,
         expected_state_version=expected_state_version,
-        ai_request_id=ai_request_id,
+        ai_request_id=resolved_ai_request_id,
     )
 
 
@@ -456,6 +454,40 @@ def _add_player_time_remaining(game: Game, player: Player, delta_seconds: int) -
 
 def _is_move_request_already_processed(game: Game, ai_request_id: str) -> bool:
     return MoveEntry.objects.filter(game=game, ai_request_id=ai_request_id).exists()
+
+
+def _resolve_required_ai_request_id(ai_request_id: str) -> str:
+    cleaned = ai_request_id.strip()
+    if not cleaned:
+        raise GameServiceError("ai_request_id is required", status_code=400)
+    return cleaned
+
+
+def _map_ai_configuration_or_validation_error(error: ValueError) -> GameServiceError:
+    message = str(error).strip() or "Unknown AI error"
+    if _is_ai_configuration_error_message(message):
+        return GameServiceError(
+            "AI configuration error",
+            status_code=503,
+            details={"details": message},
+        )
+    return GameServiceError(
+        "AI validation error",
+        status_code=502,
+        details={"details": message},
+    )
+
+
+def _is_ai_configuration_error_message(message: str) -> bool:
+    config_markers = (
+        "OPENROUTER_API_KEY",
+        "AI_OPENROUTER_MODELS",
+        "AI_TIMEOUT_MS",
+        "AI_MAX_RETRIES",
+        "model_name",
+        "max_retries",
+    )
+    return any(marker in message for marker in config_markers)
 
 
 def _get_last_turn_moves_for_undo(game: Game) -> tuple[list[MoveEntry], Player | None]:
