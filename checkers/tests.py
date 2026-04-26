@@ -16,10 +16,17 @@ from checkers.constants import (
     PLAYER_LIGHT,
     PLAYER_VALUES,
 )
+from checkers.ai.models import CheckersAIMoveContext, CheckersAIMoveDecision
+from checkers.ai.providers import CheckersOpenRouterProvider
 from checkers.models import Game
 from checkers.services.ai_move_queue_service import CheckersAIMoveEnqueueResult, CheckersAIMoveJobStatus
 from checkers.services.game_service import GameServiceError
 from checkers.views import GameViewSet
+
+
+class _NoopOpenRouterAdapter:
+    def create_chat_completion(self, _payload):
+        raise AssertionError("create_chat_completion should not be called in payload unit tests")
 
 
 class GameTimerTests(TestCase):
@@ -530,3 +537,42 @@ class GameTimerTests(TestCase):
     def _payload(self, response) -> dict:
         response.render()
         return json.loads(response.content)
+
+
+class OpenRouterProviderTemperatureTests(TestCase):
+    def setUp(self) -> None:
+        self.provider = CheckersOpenRouterProvider(
+            model_name="openrouter/free",
+            adapter=_NoopOpenRouterAdapter(),
+        )
+
+    def test_temperature_varies_by_difficulty(self) -> None:
+        test_cases = (
+            ("easy", 0.7),
+            ("medium", 0.4),
+            ("hard", 0.1),
+            ("  HARD  ", 0.1),
+        )
+
+        for difficulty, expected_temperature in test_cases:
+            with self.subTest(difficulty=difficulty):
+                payload = self.provider._build_payload(self._build_context(difficulty))
+                self.assertEqual(payload["temperature"], expected_temperature)
+
+    def test_temperature_defaults_for_unknown_difficulty(self) -> None:
+        payload = self.provider._build_payload(self._build_context("legendary"))
+        self.assertEqual(payload["temperature"], 0.4)
+
+    def _build_context(self, difficulty: str) -> CheckersAIMoveContext:
+        board = [[None for _ in range(8)] for _ in range(8)]
+        legal_moves = (
+            CheckersAIMoveDecision(from_row=2, from_col=1, to_row=3, to_col=0),
+        )
+
+        return CheckersAIMoveContext(
+            game_id="game-1",
+            board=board,
+            current_turn=PLAYER_DARK,
+            difficulty=difficulty,
+            legal_moves=legal_moves,
+        )

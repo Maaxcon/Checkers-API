@@ -25,6 +25,13 @@ from checkers.services.converters import board_to_json
 
 
 class CheckersOpenRouterProvider(CheckersAIMoveProvider):
+    DIFFICULTY_TEMPERATURE: dict[str, float] = {
+        "easy": 0.7,
+        "medium": 0.4,
+        "hard": 0.1,
+    }
+    DEFAULT_TEMPERATURE: float = 0.4
+
     def __init__(
         self,
         model_name: str,
@@ -112,8 +119,14 @@ class CheckersOpenRouterProvider(CheckersAIMoveProvider):
                 {"role": "user", "content": json.dumps(user_content)},
             ],
             "response_format": {"type": "json_object"},
-            "temperature": 0,
+            "temperature": self._resolve_temperature(context.difficulty),
         }
+
+    def _resolve_temperature(self, difficulty: str) -> float:
+        if not isinstance(difficulty, str):
+            return self.DEFAULT_TEMPERATURE
+        normalized_difficulty = difficulty.strip().lower()
+        return self.DIFFICULTY_TEMPERATURE.get(normalized_difficulty, self.DEFAULT_TEMPERATURE)
 
     def _extract_decision(self, raw_response: RawResponse) -> CheckersAIMoveDecision:
         content = self._extract_message_content(raw_response)
