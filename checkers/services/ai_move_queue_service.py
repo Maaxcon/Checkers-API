@@ -4,10 +4,12 @@ from dataclasses import dataclass
 from uuid import UUID
 
 import django_rq
+from django.db import transaction
 from redis.exceptions import RedisError
 from rq.exceptions import NoSuchJobError
 from rq.job import Job
 
+from checkers.constants import GAME_STATUS_IN_PROGRESS
 from checkers.background_tasks.ai_move_task import execute_checkers_ai_move_task
 from checkers.models import Game
 from checkers.services.game_service import GameServiceError
@@ -35,8 +37,13 @@ def enqueue_checkers_ai_move_task(
     difficulty: str,
     ai_request_id: str,
 ) -> CheckersAIMoveEnqueueResult:
-    _ensure_game_exists(game_id)
     resolved_ai_request_id = _normalize_ai_request_id(ai_request_id)
+
+    with transaction.atomic():
+        game = _get_game_for_update(game_id)
+        _ensure_game_accepts_ai_move_enqueue(game)
+        game.ai_move_pending = True
+        game.save(update_fields=["ai_move_pending"])
 
     try:
         queue = django_rq.get_queue("default")
@@ -47,7 +54,11 @@ def enqueue_checkers_ai_move_task(
             ai_request_id=resolved_ai_request_id,
         )
     except RedisError as error:
+        Game.objects.filter(id=game_id).update(ai_move_pending=False)
         raise GameServiceError("AI queue unavailable", status_code=503) from error
+    except Exception:
+        Game.objects.filter(id=game_id).update(ai_move_pending=False)
+        raise
 
     return CheckersAIMoveEnqueueResult(
         job_id=job.id,
@@ -81,9 +92,18 @@ def get_checkers_ai_move_task_status(game_id: UUID, job_id: str) -> CheckersAIMo
     )
 
 
-def _ensure_game_exists(game_id: UUID) -> None:
-    if not Game.objects.filter(id=game_id).exists():
-        raise GameServiceError("Game not found", status_code=404)
+def _get_game_for_update(game_id: UUID) -> Game:
+    try:
+        return Game.objects.select_for_update().get(id=game_id)
+    except Game.DoesNotExist as error:
+        raise GameServiceError("Game not found", status_code=404) from error
+
+
+def _ensure_game_accepts_ai_move_enqueue(game: Game) -> None:
+    if game.status != GAME_STATUS_IN_PROGRESS:
+        raise GameServiceError("Game is already finished", status_code=409)
+    if game.ai_move_pending:
+        raise GameServiceError("AI move already in progress", status_code=409)
 
 
 def _normalize_ai_request_id(ai_request_id: str) -> str:

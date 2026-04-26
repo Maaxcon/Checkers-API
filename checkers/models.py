@@ -25,6 +25,7 @@ class Game(models.Model):
     light_time_remaining = models.PositiveIntegerField(default=DEFAULT_PLAYER_TIME_SECONDS)
     dark_time_remaining = models.PositiveIntegerField(default=DEFAULT_PLAYER_TIME_SECONDS)
     state_version = models.PositiveIntegerField(default=0)
+    ai_move_pending = models.BooleanField(default=False)
     last_move_at = models.DateTimeField(default=timezone.now)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

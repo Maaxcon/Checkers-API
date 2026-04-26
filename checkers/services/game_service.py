@@ -71,10 +71,12 @@ def make_move(
     to_col: int,
     expected_state_version: int | None = None,
     ai_request_id: str | None = None,
+    internal_ai_call: bool = False,
 ) -> dict[str, object]:
     with transaction.atomic():
         game = _get_game_for_update(game_id)
         _ensure_game_in_progress(game)
+        _ensure_ai_move_not_pending(game, internal_ai_call=internal_ai_call)
         if ai_request_id is not None:
             ai_request_id = ai_request_id.strip()
             if not ai_request_id:
@@ -166,6 +168,7 @@ def make_ai_move(
         to_col=decision.to_col,
         expected_state_version=expected_state_version,
         ai_request_id=resolved_ai_request_id,
+        internal_ai_call=True,
     )
 
 
@@ -322,6 +325,7 @@ def undo_move(game_id: UUID) -> dict[str, object]:
         game = _get_game_for_update(game_id)
         _apply_lazy_timeout(game)
         _ensure_game_in_progress(game)
+        _ensure_ai_move_not_pending(game)
         turn_moves, mover_player = _get_last_turn_moves_for_undo(game)
 
         if not turn_moves:
@@ -349,6 +353,7 @@ def restart_game(game_id: UUID) -> dict[str, object]:
     with transaction.atomic():
         game = _get_game_for_update(game_id)
         _apply_lazy_timeout(game)
+        _ensure_ai_move_not_pending(game)
 
         game.moves.all().delete()
         game.board = board_to_json(create_initial_board())
@@ -392,6 +397,11 @@ def _get_game(game_id: UUID) -> Game:
 def _ensure_game_in_progress(game: Game) -> None:
     if game.status != GAME_STATUS_IN_PROGRESS:
         raise GameServiceError("Game is already finished", status_code=409)
+
+
+def _ensure_ai_move_not_pending(game: Game, internal_ai_call: bool = False) -> None:
+    if game.ai_move_pending and not internal_ai_call:
+        raise GameServiceError("AI move already in progress", status_code=409)
 
 
 def _serialize_game(game: Game) -> dict[str, object]:

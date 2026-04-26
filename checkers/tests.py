@@ -364,6 +364,20 @@ class GameTimerTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    def test_ai_move_endpoint_rejects_when_ai_move_is_already_pending(self) -> None:
+        game = self._create_game()
+        Game.objects.filter(id=game.id).update(ai_move_pending=True)
+
+        response = self.client.post(
+            f"/api/games/{game.id}/ai-move/",
+            {"difficulty": "medium", "aiRequestId": "ai-job-2"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        payload = self._payload(response)
+        self.assertEqual(payload, {"error": "AI move already in progress"})
+
     def test_ai_move_status_endpoint_returns_finished_job_payload(self) -> None:
         game = self._create_game()
 
