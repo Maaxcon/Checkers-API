@@ -1,5 +1,7 @@
 from uuid import UUID
 
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -22,6 +24,7 @@ from .services.game_service import (
 )
 
 
+@method_decorator(ensure_csrf_cookie, name='dispatch')
 class GameViewSet(viewsets.GenericViewSet):
     queryset = Game.objects.all()
     lookup_value_regex = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
