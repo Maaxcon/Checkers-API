@@ -10,6 +10,8 @@ class MoveRequestSerializer(serializers.Serializer):
     from_col = serializers.IntegerField(min_value=MIN_INPUT_INDEX, max_value=BOARD.COLS - 1)
     to_row = serializers.IntegerField(min_value=MIN_INPUT_INDEX, max_value=BOARD.ROWS - 1)
     to_col = serializers.IntegerField(min_value=MIN_INPUT_INDEX, max_value=BOARD.COLS - 1)
+    expected_state_version = serializers.IntegerField(min_value=0, required=False)
+    ai_request_id = serializers.CharField(max_length=64, required=False, allow_blank=False)
 
 
 class GameStateSerializer(serializers.ModelSerializer):
