@@ -8,6 +8,7 @@ from checkers.ai.adapters import (
 )
 from checkers.ai.config import CheckersOpenRouterConfig, load_checkers_openrouter_config
 from checkers.ai.contracts import CheckersAIMoveProvider
+from checkers.ai.factory import build_checkers_openrouter_provider_chain
 from checkers.ai.models import (
     CheckersAIMoveContext,
     CheckersAIMoveDecision,
@@ -31,6 +32,7 @@ __all__ = [
     "CheckersOpenRouterResponseFormatError",
     "CheckersOpenRouterConfig",
     "load_checkers_openrouter_config",
+    "build_checkers_openrouter_provider_chain",
     "CheckersAIMoveProvider",
     "CheckersAIMoveContext",
     "CheckersAIMoveDecision",
