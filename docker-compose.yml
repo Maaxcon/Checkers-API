@@ -28,6 +28,18 @@ services:
       - backend_data:/data
     depends_on:
       - redis
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1', 8000)); s.close()",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
     expose:
       - "8000"
     restart: unless-stopped
@@ -64,7 +76,8 @@ services:
         VITE_API_BASE_URL: /api
     container_name: checkers-frontend
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "8080:80"
     restart: unless-stopped
