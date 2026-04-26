@@ -50,10 +50,28 @@ def get_game(game_id: UUID) -> dict[str, object]:
     return _serialize_game(game)
 
 
-def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: int) -> dict[str, object]:
+def make_move(
+    game_id: UUID,
+    from_row: int,
+    from_col: int,
+    to_row: int,
+    to_col: int,
+    expected_state_version: int | None = None,
+    ai_request_id: str | None = None,
+) -> dict[str, object]:
     with transaction.atomic():
         game = _get_game_for_update(game_id)
         _ensure_game_in_progress(game)
+        if ai_request_id is not None:
+            ai_request_id = ai_request_id.strip()
+            if not ai_request_id:
+                ai_request_id = None
+
+        if ai_request_id and _is_move_request_already_processed(game, ai_request_id):
+            return _serialize_game(game)
+
+        if expected_state_version is not None and game.state_version != expected_state_version:
+            return _serialize_game(game)
 
         now, time_spent = _consume_move_time_or_fail(game)
         board = json_to_board(game.board)
@@ -75,6 +93,7 @@ def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: 
             is_promoted,
             board_before,
             time_spent,
+            ai_request_id,
         )
 
     return _serialize_game(game)
@@ -197,6 +216,7 @@ def _save_board_state(game: Game, new_board: Board, now: datetime) -> Serialized
     board_before = cast(SerializedBoard, game.board)
     game.board = board_to_json(new_board)
     game.last_move_at = now
+    game.state_version += 1
     game.save()
     return board_before
 
@@ -212,6 +232,7 @@ def _create_move_entry(
     is_promoted: bool,
     board_before: SerializedBoard,
     time_spent: int,
+    ai_request_id: str | None,
 ) -> None:
     MoveEntry.objects.create(
         game=game,
@@ -222,6 +243,7 @@ def _create_move_entry(
         is_promoted=is_promoted,
         board_before=board_before,
         time_spent=time_spent,
+        ai_request_id=ai_request_id,
     )
 
 
@@ -246,6 +268,7 @@ def undo_move(game_id: UUID) -> dict[str, object]:
         game.status = GAME_STATUS_IN_PROGRESS
         game.winner = None
         game.last_move_at = timezone.now()
+        game.state_version += 1
         game.save()
         game.moves.filter(id__in=[move.id for move in turn_moves]).delete()
 
@@ -265,6 +288,7 @@ def restart_game(game_id: UUID) -> dict[str, object]:
         game.light_time_remaining = DEFAULT_PLAYER_TIME_SECONDS
         game.dark_time_remaining = DEFAULT_PLAYER_TIME_SECONDS
         game.last_move_at = timezone.now()
+        game.state_version += 1
         game.save()
 
     return _serialize_game(game)
@@ -373,6 +397,10 @@ def _get_forced_chain_moves(game: Game, board: Board) -> list[MoveType] | None:
 
     chain_moves = get_chain_capture_moves(board, to_row, to_col)
     return chain_moves or None
+
+
+def _is_move_request_already_processed(game: Game, ai_request_id: str) -> bool:
+    return MoveEntry.objects.filter(game=game, ai_request_id=ai_request_id).exists()
 
 
 def _get_last_turn_moves_for_undo(game: Game) -> tuple[list[MoveEntry], Player | None]:
