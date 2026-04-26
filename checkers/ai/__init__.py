@@ -1,4 +1,11 @@
-from checkers.ai.adapters import CheckersOpenRouterHTTPAdapter, CheckersOpenRouterHTTPError
+from checkers.ai.adapters import (
+    CheckersOpenRouterHTTPAdapter,
+    CheckersOpenRouterHTTPStatusError,
+    CheckersOpenRouterNetworkError,
+    CheckersOpenRouterResponseFormatError,
+    CheckersOpenRouterTimeoutError,
+    CheckersOpenRouterTransportError,
+)
 from checkers.ai.config import CheckersOpenRouterConfig, load_checkers_openrouter_config
 from checkers.ai.contracts import CheckersAIMoveProvider
 from checkers.ai.models import (
@@ -17,7 +24,11 @@ from checkers.ai.providers import CheckersFallbackProvider, CheckersOpenRouterPr
 
 __all__ = [
     "CheckersOpenRouterHTTPAdapter",
-    "CheckersOpenRouterHTTPError",
+    "CheckersOpenRouterTransportError",
+    "CheckersOpenRouterTimeoutError",
+    "CheckersOpenRouterNetworkError",
+    "CheckersOpenRouterHTTPStatusError",
+    "CheckersOpenRouterResponseFormatError",
     "CheckersOpenRouterConfig",
     "load_checkers_openrouter_config",
     "CheckersAIMoveProvider",

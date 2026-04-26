@@ -1,3 +1,17 @@
-from checkers.ai.adapters.openrouter import CheckersOpenRouterHTTPAdapter, CheckersOpenRouterHTTPError
+from checkers.ai.adapters.openrouter import (
+    CheckersOpenRouterHTTPAdapter,
+    CheckersOpenRouterHTTPStatusError,
+    CheckersOpenRouterNetworkError,
+    CheckersOpenRouterResponseFormatError,
+    CheckersOpenRouterTimeoutError,
+    CheckersOpenRouterTransportError,
+)
 
-__all__ = ["CheckersOpenRouterHTTPAdapter", "CheckersOpenRouterHTTPError"]
+__all__ = [
+    "CheckersOpenRouterHTTPAdapter",
+    "CheckersOpenRouterTransportError",
+    "CheckersOpenRouterTimeoutError",
+    "CheckersOpenRouterNetworkError",
+    "CheckersOpenRouterHTTPStatusError",
+    "CheckersOpenRouterResponseFormatError",
+]

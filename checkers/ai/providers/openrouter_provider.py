@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import json
 
-from checkers.ai.adapters import CheckersOpenRouterHTTPAdapter, CheckersOpenRouterHTTPError
+from checkers.ai.adapters import (
+    CheckersOpenRouterHTTPAdapter,
+    CheckersOpenRouterHTTPStatusError,
+    CheckersOpenRouterNetworkError,
+    CheckersOpenRouterResponseFormatError,
+    CheckersOpenRouterTimeoutError,
+)
 from checkers.ai.contracts import CheckersAIMoveProvider
 from checkers.ai.models import (
     CheckersAIMoveContext,
@@ -36,9 +42,10 @@ class CheckersOpenRouterProvider(CheckersAIMoveProvider):
 
     def choose_move(self, context: CheckersAIMoveContext) -> CheckersAIProviderResult:
         payload = self._build_payload(context)
-        last_error_message = ""
+        attempts = self.max_retries + 1
 
-        for _ in range(self.max_retries + 1):
+        for attempt_idx in range(attempts):
+            is_last_attempt = attempt_idx == attempts - 1
             try:
                 raw_response = self.adapter.create_chat_completion(payload)
                 decision = self._extract_decision(raw_response)
@@ -47,14 +54,22 @@ class CheckersOpenRouterProvider(CheckersAIMoveProvider):
                     decision=decision,
                     raw_response=raw_response,
                 )
-            except CheckersOpenRouterHTTPError as error:
-                last_error_message = str(error)
-                if self._is_timeout_error(last_error_message):
-                    raise CheckersAIProviderTimeoutError(self.provider_name, last_error_message) from error
+            except CheckersOpenRouterTimeoutError as error:
+                if is_last_attempt:
+                    raise CheckersAIProviderTimeoutError(self.provider_name, str(error)) from error
+            except CheckersOpenRouterNetworkError as error:
+                if is_last_attempt:
+                    raise CheckersAIProviderUnavailableError(self.provider_name, str(error)) from error
+            except CheckersOpenRouterHTTPStatusError as error:
+                if self._is_retryable_http_status(error.status_code) and not is_last_attempt:
+                    continue
+                raise CheckersAIProviderUnavailableError(self.provider_name, str(error)) from error
+            except CheckersOpenRouterResponseFormatError as error:
+                raise CheckersAIProviderInvalidResponseError(self.provider_name, str(error)) from error
             except CheckersAIProviderInvalidResponseError:
                 raise
 
-        raise CheckersAIProviderUnavailableError(self.provider_name, last_error_message or "OpenRouter unavailable")
+        raise CheckersAIProviderUnavailableError(self.provider_name, "OpenRouter unavailable")
 
     def _build_payload(self, context: CheckersAIMoveContext) -> RawResponse:
         legal_moves_payload = [
@@ -172,6 +187,5 @@ class CheckersOpenRouterProvider(CheckersAIMoveProvider):
             lines = lines[:-1]
         return "\n".join(lines).strip()
 
-    def _is_timeout_error(self, message: str) -> bool:
-        lower = message.lower()
-        return "timed out" in lower or "timeout" in lower
+    def _is_retryable_http_status(self, status_code: int) -> bool:
+        return status_code == 408 or status_code == 429 or status_code >= 500
