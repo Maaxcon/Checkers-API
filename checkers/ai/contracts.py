@@ -1,11 +1,11 @@
 from typing import Protocol, runtime_checkable
 
-from checkers.ai.models import AIMoveContext, ProviderResult
+from checkers.ai.models import CheckersAIMoveContext, CheckersAIProviderResult
 
 
 @runtime_checkable
-class AIMoveProvider(Protocol):
+class CheckersAIMoveProvider(Protocol):
     provider_name: str
 
-    def choose_move(self, context: AIMoveContext) -> ProviderResult:
+    def choose_move(self, context: CheckersAIMoveContext) -> CheckersAIProviderResult:
         ...
