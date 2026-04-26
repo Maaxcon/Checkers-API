@@ -20,7 +20,8 @@ from checkers.ai.models import CheckersAIMoveContext, CheckersAIMoveDecision
 from checkers.ai.providers import CheckersOpenRouterProvider
 from checkers.models import Game
 from checkers.services.ai_move_queue_service import CheckersAIMoveEnqueueResult, CheckersAIMoveJobStatus
-from checkers.services.game_service import GameServiceError
+from checkers.services.game_service import GameServiceError, make_ai_move as make_ai_move_service
+from checkers.services.game_service import make_move as make_move_service
 from checkers.views import GameViewSet
 
 
@@ -410,6 +411,43 @@ class GameTimerTests(TestCase):
         self.assertTrue(payload["isFinished"])
         self.assertFalse(payload["isFailed"])
         self.assertEqual(payload["result"], {"status": GAME_STATUS_IN_PROGRESS})
+
+    def test_make_ai_move_skips_stale_ai_decision_when_state_changed_during_thinking(self) -> None:
+        game = self._create_game()
+        stale_ai_request_id = "ai-race-1"
+
+        def choose_move_with_concurrent_human_move(*, game, difficulty):
+            self.assertEqual(difficulty, "medium")
+            make_move_service(
+                game_id=game.id,
+                from_row=5,
+                from_col=0,
+                to_row=4,
+                to_col=1,
+            )
+            return CheckersAIMoveDecision(
+                from_row=2,
+                from_col=1,
+                to_row=3,
+                to_col=0,
+            )
+
+        with patch(
+            "checkers.services.game_service.choose_checkers_ai_move",
+            side_effect=choose_move_with_concurrent_human_move,
+        ):
+            make_ai_move_service(
+                game_id=game.id,
+                difficulty="medium",
+                ai_request_id=stale_ai_request_id,
+            )
+
+        game.refresh_from_db()
+        self.assertEqual(game.moves.count(), 1)
+        self.assertFalse(
+            game.moves.filter(ai_request_id=stale_ai_request_id).exists(),
+            "Stale AI decision must not be applied after board state changed.",
+        )
 
     def test_api_contract_for_all_endpoints(self) -> None:
         create_response = self.client.post("/api/games/", {}, format="json")
