@@ -13,7 +13,6 @@ from checkers.ai.contracts import CheckersAIMoveProvider
 from checkers.ai.models import (
     CheckersAIMoveContext,
     CheckersAIMoveDecision,
-    CheckersAIProviderIllegalMoveError,
     CheckersAIProviderInvalidResponseError,
     CheckersAIProviderResult,
     CheckersAIProviderTimeoutError,
@@ -21,6 +20,7 @@ from checkers.ai.models import (
     JSONValue,
     RawResponse,
 )
+from checkers.ai.validation import validate_checkers_ai_decision_is_legal
 from checkers.services.converters import board_to_json
 
 
@@ -50,7 +50,7 @@ class CheckersOpenRouterProvider(CheckersAIMoveProvider):
             try:
                 raw_response = self.adapter.create_chat_completion(payload)
                 decision = self._extract_decision(raw_response)
-                self._validate_decision(context, decision)
+                validate_checkers_ai_decision_is_legal(self.provider_name, context, decision)
                 return CheckersAIProviderResult(
                     provider=self.provider_name,
                     decision=decision,
@@ -191,16 +191,3 @@ class CheckersOpenRouterProvider(CheckersAIMoveProvider):
 
     def _is_retryable_http_status(self, status_code: int) -> bool:
         return status_code == 408 or status_code == 429 or status_code >= 500
-
-    def _validate_decision(self, context: CheckersAIMoveContext, decision: CheckersAIMoveDecision) -> None:
-        if decision in context.legal_moves:
-            return
-
-        raise CheckersAIProviderIllegalMoveError(
-            self.provider_name,
-            (
-                "Model returned illegal move: "
-                f"from=({decision.from_row},{decision.from_col}) "
-                f"to=({decision.to_row},{decision.to_col})"
-            ),
-        )

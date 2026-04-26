@@ -22,6 +22,7 @@ from checkers.ai.models import (
     RawResponse,
 )
 from checkers.ai.providers import CheckersFallbackProvider, CheckersOpenRouterProvider
+from checkers.ai.validation import validate_checkers_ai_decision_is_legal
 
 __all__ = [
     "CheckersOpenRouterHTTPAdapter",
@@ -46,4 +47,5 @@ __all__ = [
     "CheckersAIProviderResult",
     "CheckersFallbackProvider",
     "CheckersOpenRouterProvider",
+    "validate_checkers_ai_decision_is_legal",
 ]
