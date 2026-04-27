@@ -649,6 +649,28 @@ class OpenRouterProviderValidationTests(TestCase):
             CheckersAIMoveDecision(from_row=2, from_col=1, to_row=3, to_col=0),
         )
 
+    def test_extract_decision_accepts_chatty_text_around_json(self) -> None:
+        raw_response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            "Sure, here is the move you asked for.\n"
+                            "{\"from_row\": 2, \"from_col\": 1, \"to_row\": 3, \"to_col\": 0}\n"
+                            "Good luck!"
+                        )
+                    }
+                }
+            ]
+        }
+
+        decision = self.provider._extract_decision(raw_response)
+
+        self.assertEqual(
+            decision,
+            CheckersAIMoveDecision(from_row=2, from_col=1, to_row=3, to_col=0),
+        )
+
     def test_extract_decision_raises_on_invalid_shape(self) -> None:
         raw_response = {
             "choices": [

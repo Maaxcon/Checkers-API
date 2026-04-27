@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
 
@@ -236,17 +237,38 @@ class CheckersOpenRouterProvider(CheckersAIMoveProvider):
 
     def _parse_json_object_from_text(self, raw_text: str) -> dict[str, JSONValue]:
         cleaned = self._strip_code_fence(raw_text)
-        try:
-            parsed = json.loads(cleaned)
-        except json.JSONDecodeError as error:
-            raise CheckersAIProviderInvalidResponseError(
-                self.provider_name,
-                "Message content is not valid JSON",
-            ) from error
+        parsed = self._try_parse_json_object(cleaned)
+        if parsed is not None:
+            return parsed
 
-        if not isinstance(parsed, dict):
-            raise CheckersAIProviderInvalidResponseError(self.provider_name, "Parsed content must be JSON object")
-        return parsed
+        # Some free/open models prepend/append explanation text around JSON.
+        # Fallback: extract the first JSON-like object block and parse that.
+        extracted_json = self._extract_json_object_with_regex(cleaned)
+        if extracted_json is not None:
+            parsed = self._try_parse_json_object(extracted_json)
+            if parsed is not None:
+                return parsed
+
+        raise CheckersAIProviderInvalidResponseError(
+            self.provider_name,
+            "Message content is not valid JSON",
+        )
+
+    def _try_parse_json_object(self, raw_text: str) -> dict[str, JSONValue] | None:
+        try:
+            parsed = json.loads(raw_text)
+        except json.JSONDecodeError:
+            return None
+
+        if isinstance(parsed, dict):
+            return parsed
+        return None
+
+    def _extract_json_object_with_regex(self, raw_text: str) -> str | None:
+        match = re.search(r"\{[\s\S]*\}", raw_text)
+        if match is None:
+            return None
+        return match.group(0).strip()
 
     def _contains_decision_fields(self, data: dict[str, JSONValue]) -> bool:
         expected_keys = ("from_row", "from_col", "to_row", "to_col")
