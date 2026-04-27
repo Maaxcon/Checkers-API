@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-import socket
 from dataclasses import dataclass
-from urllib import error, request
+
+import requests
 
 from checkers.ai.models import RawResponse
 
@@ -38,31 +38,27 @@ class CheckersOpenRouterHTTPAdapter:
     base_url: str = "https://openrouter.ai/api/v1"
 
     def create_chat_completion(self, payload: RawResponse) -> RawResponse:
-        body = json.dumps(payload).encode("utf-8")
-        req = request.Request(
-            url=f"{self.base_url}/chat/completions",
-            data=body,
-            method="POST",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-        )
-
         try:
-            with request.urlopen(req, timeout=self.timeout_ms / 1000) as response:
-                raw_body = response.read().decode("utf-8")
-        except TimeoutError as exc:
+            response = requests.post(
+                url=f"{self.base_url}/chat/completions",
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                timeout=self.timeout_ms / 1000,
+            )
+            response.raise_for_status()
+            raw_body = response.text
+        except requests.Timeout as exc:
             raise CheckersOpenRouterTimeoutError("OpenRouter request timed out") from exc
-        except error.HTTPError as exc:
-            error_body = exc.read().decode("utf-8", errors="replace")
-            raise CheckersOpenRouterHTTPStatusError(exc.code, error_body) from exc
-        except error.URLError as exc:
-            reason = exc.reason
-            if isinstance(reason, (TimeoutError, socket.timeout)) or "timed out" in str(reason).lower():
-                raise CheckersOpenRouterTimeoutError("OpenRouter request timed out") from exc
-            raise CheckersOpenRouterNetworkError(f"OpenRouter network error: {reason}") from exc
+        except requests.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response is not None else 0
+            error_body = exc.response.text if exc.response is not None else str(exc)
+            raise CheckersOpenRouterHTTPStatusError(status_code, error_body) from exc
+        except requests.RequestException as exc:
+            raise CheckersOpenRouterNetworkError(f"OpenRouter network error: {exc}") from exc
 
         try:
             parsed = json.loads(raw_body)
