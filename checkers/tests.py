@@ -17,6 +17,7 @@ from checkers.constants import (
     PLAYER_VALUES,
 )
 from checkers.ai.models import CheckersAIMoveContext, CheckersAIMoveDecision
+from checkers.ai.models import CheckersAIProviderInvalidResponseError
 from checkers.ai.providers import CheckersOpenRouterProvider
 from checkers.models import Game
 from checkers.services.ai_move_queue_service import CheckersAIMoveEnqueueResult, CheckersAIMoveJobStatus
@@ -614,3 +615,59 @@ class OpenRouterProviderTemperatureTests(TestCase):
             difficulty=difficulty,
             legal_moves=legal_moves,
         )
+
+
+class OpenRouterProviderValidationTests(TestCase):
+    def setUp(self) -> None:
+        self.provider = CheckersOpenRouterProvider(
+            model_name="openrouter/free",
+            adapter=_NoopOpenRouterAdapter(),
+        )
+
+    def test_extract_decision_accepts_camel_case_string_numbers(self) -> None:
+        raw_response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "fromRow": "2",
+                                "fromCol": "1",
+                                "toRow": "3",
+                                "toCol": "0",
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+
+        decision = self.provider._extract_decision(raw_response)
+
+        self.assertEqual(
+            decision,
+            CheckersAIMoveDecision(from_row=2, from_col=1, to_row=3, to_col=0),
+        )
+
+    def test_extract_decision_raises_on_invalid_shape(self) -> None:
+        raw_response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "fromRow": "not-an-int",
+                                "fromCol": "1",
+                                "toRow": "3",
+                                "toCol": "0",
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+
+        with self.assertRaises(CheckersAIProviderInvalidResponseError) as error_context:
+            self.provider._extract_decision(raw_response)
+
+        self.assertIn("Move payload validation failed", str(error_context.exception))

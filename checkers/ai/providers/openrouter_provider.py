@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
+
 from checkers.ai.adapters import (
     CheckersOpenRouterHTTPAdapter,
     CheckersOpenRouterHTTPStatusError,
@@ -22,6 +24,15 @@ from checkers.ai.models import (
 )
 from checkers.ai.validation import validate_checkers_ai_decision_is_legal
 from checkers.services.converters import board_to_json
+
+
+class MoveResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    from_row: int = Field(validation_alias=AliasChoices("from_row", "fromRow"))
+    from_col: int = Field(validation_alias=AliasChoices("from_col", "fromCol"))
+    to_row: int = Field(validation_alias=AliasChoices("to_row", "toRow"))
+    to_col: int = Field(validation_alias=AliasChoices("to_col", "toCol"))
 
 
 class CheckersOpenRouterProvider(CheckersAIMoveProvider):
@@ -131,15 +142,19 @@ class CheckersOpenRouterProvider(CheckersAIMoveProvider):
     def _extract_decision(self, raw_response: RawResponse) -> CheckersAIMoveDecision:
         content = self._extract_message_content(raw_response)
         decision_obj = self._parse_content_to_object(content)
-        from_row = self._read_int(decision_obj, "from_row", "fromRow")
-        from_col = self._read_int(decision_obj, "from_col", "fromCol")
-        to_row = self._read_int(decision_obj, "to_row", "toRow")
-        to_col = self._read_int(decision_obj, "to_col", "toCol")
+        try:
+            validated = MoveResponse.model_validate(decision_obj)
+        except ValidationError as error:
+            raise CheckersAIProviderInvalidResponseError(
+                self.provider_name,
+                "Move payload validation failed",
+            ) from error
+
         return CheckersAIMoveDecision(
-            from_row=from_row,
-            from_col=from_col,
-            to_row=to_row,
-            to_col=to_col,
+            from_row=validated.from_row,
+            from_col=validated.from_col,
+            to_row=validated.to_row,
+            to_col=validated.to_col,
         )
 
     def _extract_message_content(self, raw_response: RawResponse) -> JSONValue:
@@ -200,12 +215,6 @@ class CheckersOpenRouterProvider(CheckersAIMoveProvider):
             return self._parse_json_object_from_text("\n".join(text_chunks))
 
         raise CheckersAIProviderInvalidResponseError(self.provider_name, "Unsupported message content format")
-
-    def _read_int(self, data: dict[str, JSONValue], snake_key: str, camel_key: str) -> int:
-        value = data.get(snake_key, data.get(camel_key))
-        if not isinstance(value, int) or isinstance(value, bool):
-            raise CheckersAIProviderInvalidResponseError(self.provider_name, f"Field {snake_key} must be int")
-        return value
 
     def _strip_code_fence(self, raw: str) -> str:
         text = raw.strip()
