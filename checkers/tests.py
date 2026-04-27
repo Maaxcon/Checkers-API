@@ -23,6 +23,7 @@ from checkers.models import Game
 from checkers.services.ai_move_queue_service import CheckersAIMoveEnqueueResult, CheckersAIMoveJobStatus
 from checkers.services.game_service import GameServiceError, make_ai_move as make_ai_move_service
 from checkers.services.game_service import make_move as make_move_service
+from checkers.services.types import Board
 from checkers.views import GameViewSet
 
 
@@ -603,7 +604,7 @@ class OpenRouterProviderTemperatureTests(TestCase):
         self.assertEqual(payload["temperature"], 0.4)
 
     def _build_context(self, difficulty: str) -> CheckersAIMoveContext:
-        board = [[None for _ in range(8)] for _ in range(8)]
+        board = Board.empty(8, 8)
         legal_moves = (
             CheckersAIMoveDecision(from_row=2, from_col=1, to_row=3, to_col=0),
         )

@@ -19,7 +19,9 @@ def board_to_json(board: Board) -> SerializedBoard:
 
 
 def json_to_board(board_json: SerializedBoard) -> Board:
-    return [
-        [(Piece(player=p["player"], is_king=p["is_king"]) if p else None) for p in row]
-        for row in board_json
-    ]
+    return Board(
+        [
+            [(Piece(player=p["player"], is_king=p["is_king"]) if p else None) for p in row]
+            for row in board_json
+        ]
+    )
