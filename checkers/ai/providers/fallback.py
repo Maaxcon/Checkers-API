@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import logging
-
 from checkers.ai.contracts import CheckersAIMoveProvider
 from checkers.ai.models import (
     CheckersAIMoveContext,
@@ -9,8 +7,6 @@ from checkers.ai.models import (
     CheckersAIProviderResult,
     CheckersAIProviderUnavailableError,
 )
-
-logger = logging.getLogger("checkers.ai.fallback")
 
 
 class CheckersFallbackProvider(CheckersAIMoveProvider):
@@ -27,18 +23,10 @@ class CheckersFallbackProvider(CheckersAIMoveProvider):
         for provider in self._providers:
             try:
                 result = provider.choose_move(context)
-                if failures:
-                    logger.warning(
-                        "AI fallback engaged selected_provider=%s previous_failures=%s",
-                        result.provider,
-                        "; ".join(failures),
-                    )
                 return result
             except CheckersAIProviderError as error:
-                logger.warning("AI provider failed provider=%s error=%s", provider.provider_name, error)
                 failures.append(str(error))
             except Exception as error:
-                logger.warning("AI provider crashed provider=%s error=%s", provider.provider_name, error)
                 failures.append(f"[{provider.provider_name}] {error}")
 
         message = "All providers failed"

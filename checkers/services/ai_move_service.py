@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from typing import cast
 
 from checkers.ai.factory import build_checkers_openrouter_provider_chain
@@ -13,8 +12,6 @@ from checkers.services.move_entry_utils import (
     resolve_checkers_forced_chain_moves as _get_forced_chain_moves,
 )
 from checkers.services.types import Board, MoveType, Player
-
-logger = logging.getLogger("checkers.ai.move")
 
 
 def build_checkers_ai_move_context(game: Game, difficulty: str) -> CheckersAIMoveContext:
@@ -47,16 +44,6 @@ def choose_checkers_ai_move(
     context = build_checkers_ai_move_context(game, difficulty)
     selected_provider = provider or build_checkers_openrouter_provider_chain()
     result = selected_provider.choose_move(context)
-    logger.info(
-        "AI move selected provider=%s game_id=%s difficulty=%s decision=(%s,%s)->(%s,%s)",
-        result.provider,
-        game.id,
-        difficulty,
-        result.decision.from_row,
-        result.decision.from_col,
-        result.decision.to_row,
-        result.decision.to_col,
-    )
     return result.decision
 
 

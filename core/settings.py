@@ -212,31 +212,3 @@ RQ_QUEUES = {
     },
 }
 RQ_SHOW_ADMIN_LINK = True
-
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "standard": {
-            "format": "[%(asctime)s] %(levelname)s %(name)s: %(message)s",
-        },
-    },
-    "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": "standard",
-        },
-    },
-    "loggers": {
-        "checkers.ai.move": {
-            "handlers": ["console"],
-            "level": "INFO",
-            "propagate": False,
-        },
-        "checkers.ai.fallback": {
-            "handlers": ["console"],
-            "level": "INFO",
-            "propagate": False,
-        },
-    },
-}
