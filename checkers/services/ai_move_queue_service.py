@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from uuid import uuid4
 from uuid import UUID
 
 import django_rq
@@ -39,32 +38,22 @@ def enqueue_checkers_ai_move_task(
     ai_request_id: str,
 ) -> CheckersAIMoveEnqueueResult:
     resolved_ai_request_id = _normalize_ai_request_id(ai_request_id)
-    reserved_job_id = f"ai-move-{uuid4()}"
-
-    with transaction.atomic():
-        game = _get_game_for_update(game_id)
-        _ensure_game_accepts_ai_move_enqueue(game)
-        game.current_ai_job_id = reserved_job_id
-        game.save(update_fields=["current_ai_job_id"])
+    queue = django_rq.get_queue("default")
 
     try:
-        queue = django_rq.get_queue("default")
-        job = queue.enqueue(
-            execute_checkers_ai_move_task,
-            game_id=str(game_id),
-            difficulty=difficulty,
-            ai_request_id=resolved_ai_request_id,
-            job_id=reserved_job_id,
-        )
+        with transaction.atomic():
+            game = _get_game_for_update(game_id)
+            _ensure_game_accepts_ai_move_enqueue(game)
+            job = queue.enqueue(
+                execute_checkers_ai_move_task,
+                game_id=str(game_id),
+                difficulty=difficulty,
+                ai_request_id=resolved_ai_request_id,
+            )
+            game.current_ai_job_id = job.get_id()
+            game.save(update_fields=["current_ai_job_id"])
     except RedisError as error:
-        Game.objects.filter(id=game_id, current_ai_job_id=reserved_job_id).update(current_ai_job_id=None)
         raise GameServiceError("AI queue unavailable", status_code=503) from error
-    except Exception:
-        Game.objects.filter(id=game_id, current_ai_job_id=reserved_job_id).update(current_ai_job_id=None)
-        raise
-
-    if job.id != reserved_job_id:
-        Game.objects.filter(id=game_id, current_ai_job_id=reserved_job_id).update(current_ai_job_id=job.id)
 
     return CheckersAIMoveEnqueueResult(
         job_id=job.id,
