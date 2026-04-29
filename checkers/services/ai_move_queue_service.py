@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import uuid4
 from uuid import UUID
 
 import django_rq
@@ -38,12 +39,13 @@ def enqueue_checkers_ai_move_task(
     ai_request_id: str,
 ) -> CheckersAIMoveEnqueueResult:
     resolved_ai_request_id = _normalize_ai_request_id(ai_request_id)
+    reserved_job_id = f"ai-move-{uuid4()}"
 
     with transaction.atomic():
         game = _get_game_for_update(game_id)
         _ensure_game_accepts_ai_move_enqueue(game)
-        game.ai_move_pending = True
-        game.save(update_fields=["ai_move_pending"])
+        game.current_ai_job_id = reserved_job_id
+        game.save(update_fields=["current_ai_job_id"])
 
     try:
         queue = django_rq.get_queue("default")
@@ -52,13 +54,17 @@ def enqueue_checkers_ai_move_task(
             game_id=str(game_id),
             difficulty=difficulty,
             ai_request_id=resolved_ai_request_id,
+            job_id=reserved_job_id,
         )
     except RedisError as error:
-        Game.objects.filter(id=game_id).update(ai_move_pending=False)
+        Game.objects.filter(id=game_id, current_ai_job_id=reserved_job_id).update(current_ai_job_id=None)
         raise GameServiceError("AI queue unavailable", status_code=503) from error
     except Exception:
-        Game.objects.filter(id=game_id).update(ai_move_pending=False)
+        Game.objects.filter(id=game_id, current_ai_job_id=reserved_job_id).update(current_ai_job_id=None)
         raise
+
+    if job.id != reserved_job_id:
+        Game.objects.filter(id=game_id, current_ai_job_id=reserved_job_id).update(current_ai_job_id=job.id)
 
     return CheckersAIMoveEnqueueResult(
         job_id=job.id,
@@ -102,7 +108,7 @@ def _get_game_for_update(game_id: UUID) -> Game:
 def _ensure_game_accepts_ai_move_enqueue(game: Game) -> None:
     if game.status != GAME_STATUS_IN_PROGRESS:
         raise GameServiceError("Game is already finished", status_code=409)
-    if game.ai_move_pending:
+    if game.current_ai_job_id is not None:
         raise GameServiceError("AI move already in progress", status_code=409)
 
 

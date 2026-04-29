@@ -376,7 +376,7 @@ class GameTimerTests(TestCase):
 
     def test_ai_move_endpoint_rejects_when_ai_move_is_already_pending(self) -> None:
         game = self._create_game()
-        Game.objects.filter(id=game.id).update(ai_move_pending=True)
+        Game.objects.filter(id=game.id).update(current_ai_job_id="job-in-progress")
 
         response = self.client.post(
             f"/api/games/{game.id}/ai-move/",
