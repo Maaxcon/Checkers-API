@@ -16,6 +16,8 @@ class MoveRequestSerializer(serializers.Serializer):
 
 class AIMoveRequestSerializer(serializers.Serializer):
     difficulty = serializers.ChoiceField(choices=("easy", "medium", "hard"), default="medium", required=False)
+    # Frontend must reuse this ID for retries of the same move to ensure idempotency.
+    # If a new ID is sent, a new task will be spawned if the previous one died.
     ai_request_id = serializers.CharField(max_length=64, required=True, allow_blank=False)
 
 
