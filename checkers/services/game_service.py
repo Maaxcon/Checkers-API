@@ -400,7 +400,7 @@ def _ensure_game_in_progress(game: Game) -> None:
 
 
 def _ensure_ai_move_not_pending(game: Game, internal_ai_call: bool = False) -> None:
-    if game.current_ai_job_id is not None and not internal_ai_call:
+    if game.is_ai_thinking() and not internal_ai_call:
         raise GameServiceError("AI move already in progress", status_code=409)
 
 

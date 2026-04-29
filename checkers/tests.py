@@ -376,13 +376,12 @@ class GameTimerTests(TestCase):
 
     def test_ai_move_endpoint_rejects_when_ai_move_is_already_pending(self) -> None:
         game = self._create_game()
-        Game.objects.filter(id=game.id).update(current_ai_job_id="job-in-progress")
-
-        response = self.client.post(
-            f"/api/games/{game.id}/ai-move/",
-            {"difficulty": "medium", "aiRequestId": "ai-job-2"},
-            format="json",
-        )
+        with patch("checkers.models.Game.is_ai_thinking", return_value=True):
+            response = self.client.post(
+                f"/api/games/{game.id}/ai-move/",
+                {"difficulty": "medium", "aiRequestId": "ai-job-2"},
+                format="json",
+            )
 
         self.assertEqual(response.status_code, 409)
         payload = self._payload(response)

@@ -1,6 +1,9 @@
 import uuid
+
+from django_rq import get_queue
 from django.db import models
 from django.db.models import Q
+from rq.job import Job
 from django.utils import timezone
 
 from .constants import (
@@ -32,6 +35,17 @@ class Game(models.Model):
 
     def __str__(self) -> str:
         return f"Game {self.id} - {self.status}"
+
+    def is_ai_thinking(self) -> bool:
+        if not self.current_ai_job_id:
+            return False
+
+        try:
+            queue = get_queue("default")
+            job = Job.fetch(self.current_ai_job_id, connection=queue.connection)
+            return job.get_status(refresh=False) in {"queued", "started", "deferred"}
+        except Exception:
+            return False
 
 
 class MoveEntry(models.Model):

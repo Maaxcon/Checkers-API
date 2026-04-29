@@ -97,7 +97,7 @@ def _get_game_for_update(game_id: UUID) -> Game:
 def _ensure_game_accepts_ai_move_enqueue(game: Game) -> None:
     if game.status != GAME_STATUS_IN_PROGRESS:
         raise GameServiceError("Game is already finished", status_code=409)
-    if game.current_ai_job_id is not None:
+    if game.is_ai_thinking():
         raise GameServiceError("AI move already in progress", status_code=409)
 
 
