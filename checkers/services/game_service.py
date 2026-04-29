@@ -8,6 +8,13 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
+from checkers.ai.models import (
+    CheckersAIProviderError,
+    CheckersAIProviderIllegalMoveError,
+    CheckersAIProviderInvalidResponseError,
+    CheckersAIProviderTimeoutError,
+    CheckersAIProviderUnavailableError,
+)
 from checkers.constants import (
     DEFAULT_PLAYER_TIME_SECONDS,
     GAME_STATUS_FINISHED,
@@ -17,11 +24,17 @@ from checkers.constants import (
     PLAYER_VALUES,
 )
 from checkers.serializers import GameStateSerializer
+from checkers.services.ai_move_service import choose_checkers_ai_move
 from checkers.services.constants import MOVE_TYPE_CAPTURE
 from checkers.models import Game, MoveEntry
 from checkers.services.board import create_initial_board
 from checkers.services.converters import SerializedBoard, board_to_json, json_to_board
 from checkers.services.logic import apply_move, get_chain_capture_moves, get_legal_moves_for_player, get_opponent, get_winner
+from checkers.services.move_entry_utils import (
+    extract_checkers_player_from_serialized_board as _extract_player_from_board,
+    extract_checkers_position as _extract_pos,
+    resolve_checkers_forced_chain_moves as _get_forced_chain_moves,
+)
 from checkers.services.types import Board, MoveType, Player
 
 
@@ -50,10 +63,30 @@ def get_game(game_id: UUID) -> dict[str, object]:
     return _serialize_game(game)
 
 
-def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: int) -> dict[str, object]:
+def make_move(
+    game_id: UUID,
+    from_row: int,
+    from_col: int,
+    to_row: int,
+    to_col: int,
+    expected_state_version: int | None = None,
+    ai_request_id: str | None = None,
+    internal_ai_call: bool = False,
+) -> dict[str, object]:
     with transaction.atomic():
         game = _get_game_for_update(game_id)
         _ensure_game_in_progress(game)
+        _ensure_ai_move_not_pending(game, internal_ai_call=internal_ai_call)
+        if ai_request_id is not None:
+            ai_request_id = ai_request_id.strip()
+            if not ai_request_id:
+                ai_request_id = None
+
+        if ai_request_id and _is_move_request_already_processed(game, ai_request_id):
+            return _serialize_game(game)
+
+        if expected_state_version is not None and game.state_version != expected_state_version:
+            return _serialize_game(game)
 
         now, time_spent = _consume_move_time_or_fail(game)
         board = json_to_board(game.board)
@@ -75,9 +108,68 @@ def make_move(game_id: UUID, from_row: int, from_col: int, to_row: int, to_col: 
             is_promoted,
             board_before,
             time_spent,
+            ai_request_id,
         )
 
     return _serialize_game(game)
+
+
+def make_ai_move(
+    game_id: UUID,
+    difficulty: str,
+    ai_request_id: str,
+) -> dict[str, object]:
+    game = _get_game(game_id)
+    _apply_lazy_timeout(game)
+    _ensure_game_in_progress(game)
+    expected_state_version = game.state_version
+    resolved_ai_request_id = _resolve_required_ai_request_id(ai_request_id)
+
+    try:
+        decision = choose_checkers_ai_move(game=game, difficulty=difficulty)
+    except ValueError as error:
+        raise _map_ai_configuration_or_validation_error(error) from error
+    except CheckersAIProviderTimeoutError as error:
+        raise GameServiceError(
+            "AI provider timeout",
+            status_code=504,
+            details={"provider": error.provider},
+        ) from error
+    except CheckersAIProviderUnavailableError as error:
+        raise GameServiceError(
+            "AI provider unavailable",
+            status_code=503,
+            details={"provider": error.provider},
+        ) from error
+    except CheckersAIProviderInvalidResponseError as error:
+        raise GameServiceError(
+            "AI provider returned invalid response",
+            status_code=502,
+            details={"provider": error.provider},
+        ) from error
+    except CheckersAIProviderIllegalMoveError as error:
+        raise GameServiceError(
+            "AI provider returned illegal move",
+            status_code=502,
+            details={"provider": error.provider},
+        ) from error
+    except CheckersAIProviderError as error:
+        raise GameServiceError(
+            "AI provider error",
+            status_code=502,
+            details={"provider": error.provider},
+        ) from error
+
+    return make_move(
+        game_id=game_id,
+        from_row=decision.from_row,
+        from_col=decision.from_col,
+        to_row=decision.to_row,
+        to_col=decision.to_col,
+        expected_state_version=expected_state_version,
+        ai_request_id=resolved_ai_request_id,
+        internal_ai_call=True,
+    )
 
 
 def _consume_move_time_or_fail(game: Game) -> tuple[datetime, int]:
@@ -197,6 +289,7 @@ def _save_board_state(game: Game, new_board: Board, now: datetime) -> Serialized
     board_before = cast(SerializedBoard, game.board)
     game.board = board_to_json(new_board)
     game.last_move_at = now
+    game.state_version += 1
     game.save()
     return board_before
 
@@ -212,6 +305,7 @@ def _create_move_entry(
     is_promoted: bool,
     board_before: SerializedBoard,
     time_spent: int,
+    ai_request_id: str | None,
 ) -> None:
     MoveEntry.objects.create(
         game=game,
@@ -222,6 +316,7 @@ def _create_move_entry(
         is_promoted=is_promoted,
         board_before=board_before,
         time_spent=time_spent,
+        ai_request_id=ai_request_id,
     )
 
 
@@ -230,6 +325,7 @@ def undo_move(game_id: UUID) -> dict[str, object]:
         game = _get_game_for_update(game_id)
         _apply_lazy_timeout(game)
         _ensure_game_in_progress(game)
+        _ensure_ai_move_not_pending(game)
         turn_moves, mover_player = _get_last_turn_moves_for_undo(game)
 
         if not turn_moves:
@@ -246,6 +342,7 @@ def undo_move(game_id: UUID) -> dict[str, object]:
         game.status = GAME_STATUS_IN_PROGRESS
         game.winner = None
         game.last_move_at = timezone.now()
+        game.state_version += 1
         game.save()
         game.moves.filter(id__in=[move.id for move in turn_moves]).delete()
 
@@ -256,6 +353,7 @@ def restart_game(game_id: UUID) -> dict[str, object]:
     with transaction.atomic():
         game = _get_game_for_update(game_id)
         _apply_lazy_timeout(game)
+        _ensure_ai_move_not_pending(game)
 
         game.moves.all().delete()
         game.board = board_to_json(create_initial_board())
@@ -265,6 +363,7 @@ def restart_game(game_id: UUID) -> dict[str, object]:
         game.light_time_remaining = DEFAULT_PLAYER_TIME_SECONDS
         game.dark_time_remaining = DEFAULT_PLAYER_TIME_SECONDS
         game.last_move_at = timezone.now()
+        game.state_version += 1
         game.save()
 
     return _serialize_game(game)
@@ -298,6 +397,11 @@ def _get_game(game_id: UUID) -> Game:
 def _ensure_game_in_progress(game: Game) -> None:
     if game.status != GAME_STATUS_IN_PROGRESS:
         raise GameServiceError("Game is already finished", status_code=409)
+
+
+def _ensure_ai_move_not_pending(game: Game, internal_ai_call: bool = False) -> None:
+    if game.is_ai_thinking() and not internal_ai_call:
+        raise GameServiceError("AI move already in progress", status_code=409)
 
 
 def _serialize_game(game: Game) -> dict[str, object]:
@@ -358,21 +462,42 @@ def _add_player_time_remaining(game: Game, player: Player, delta_seconds: int) -
     _set_player_time_remaining(game, player, updated_time)
 
 
-def _get_forced_chain_moves(game: Game, board: Board) -> list[MoveType] | None:
-    last_move = game.moves.order_by("-created_at", "-id").first()
-    if last_move is None or not last_move.is_jump:
-        return None
+def _is_move_request_already_processed(game: Game, ai_request_id: str) -> bool:
+    return MoveEntry.objects.filter(game=game, ai_request_id=ai_request_id).exists()
 
-    mover_player = _extract_player_from_board(last_move.board_before, last_move.from_pos)
-    if mover_player != game.current_turn:
-        return None
 
-    to_row, to_col = _extract_pos(last_move.to_pos)
-    if to_row is None or to_col is None:
-        return None
+def _resolve_required_ai_request_id(ai_request_id: str) -> str:
+    cleaned = ai_request_id.strip()
+    if not cleaned:
+        raise GameServiceError("ai_request_id is required", status_code=400)
+    return cleaned
 
-    chain_moves = get_chain_capture_moves(board, to_row, to_col)
-    return chain_moves or None
+
+def _map_ai_configuration_or_validation_error(error: ValueError) -> GameServiceError:
+    message = str(error).strip() or "Unknown AI error"
+    if _is_ai_configuration_error_message(message):
+        return GameServiceError(
+            "AI configuration error",
+            status_code=503,
+            details={"details": message},
+        )
+    return GameServiceError(
+        "AI validation error",
+        status_code=502,
+        details={"details": message},
+    )
+
+
+def _is_ai_configuration_error_message(message: str) -> bool:
+    config_markers = (
+        "OPENROUTER_API_KEY",
+        "AI_OPENROUTER_MODELS",
+        "AI_TIMEOUT_MS",
+        "AI_MAX_RETRIES",
+        "model_name",
+        "max_retries",
+    )
+    return any(marker in message for marker in config_markers)
 
 
 def _get_last_turn_moves_for_undo(game: Game) -> tuple[list[MoveEntry], Player | None]:
@@ -401,33 +526,6 @@ def _get_last_turn_moves_for_undo(game: Game) -> tuple[list[MoveEntry], Player |
         turn_moves.append(move)
 
     return turn_moves, mover_player
-
-
-def _extract_player_from_board(board_json: SerializedBoard, pos: object) -> Player | None:
-    row, col = _extract_pos(pos)
-    if row is None or col is None:
-        return None
-
-    try:
-        piece = board_json[row][col]
-    except (IndexError, TypeError):
-        return None
-
-    if piece is None:
-        return None
-
-    player = piece["player"]
-    if player in PLAYER_VALUES:
-        return player
-    return None
-
-
-def _extract_pos(pos: object) -> tuple[int | None, int | None]:
-    if not isinstance(pos, (list, tuple)) or len(pos) != 2:
-        return None, None
-    if not isinstance(pos[0], int) or not isinstance(pos[1], int):
-        return None, None
-    return pos[0], pos[1]
 
 
 def _build_move_log(moves: list[MoveEntry]) -> list[dict[str, object]]:

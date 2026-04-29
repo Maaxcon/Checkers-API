@@ -16,9 +16,20 @@ from checkers.constants import (
     PLAYER_LIGHT,
     PLAYER_VALUES,
 )
+from checkers.ai.models import CheckersAIMoveContext, CheckersAIMoveDecision
+from checkers.ai.models import CheckersAIProviderInvalidResponseError
+from checkers.ai.providers import CheckersOpenRouterProvider
 from checkers.models import Game
-from checkers.services.game_service import GameServiceError
+from checkers.services.ai_move_queue_service import CheckersAIMoveEnqueueResult, CheckersAIMoveJobStatus
+from checkers.services.game_service import GameServiceError, make_ai_move as make_ai_move_service
+from checkers.services.game_service import make_move as make_move_service
+from checkers.services.types import Board
 from checkers.views import GameViewSet
+
+
+class _NoopOpenRouterAdapter:
+    def create_chat_completion(self, _payload):
+        raise AssertionError("create_chat_completion should not be called in payload unit tests")
 
 
 class GameTimerTests(TestCase):
@@ -330,6 +341,115 @@ class GameTimerTests(TestCase):
         self.assertEqual(history_payload["moveLog"][0]["from"], {"row": 5, "col": 0})
         self.assertEqual(history_payload["moveLog"][0]["to"], {"row": 1, "col": 4})
 
+    def test_ai_move_endpoint_enqueues_background_job(self) -> None:
+        game = self._create_game()
+
+        with patch(
+            "checkers.views.enqueue_checkers_ai_move_task",
+            return_value=CheckersAIMoveEnqueueResult(
+                job_id="job-123",
+                status="queued",
+                ai_request_id="ai-job-1",
+            ),
+        ):
+            response = self.client.post(
+                f"/api/games/{game.id}/ai-move/",
+                {"difficulty": "medium", "aiRequestId": "ai-job-1"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 202)
+        payload = self._payload(response)
+        self.assertEqual(payload["jobId"], "job-123")
+        self.assertEqual(payload["status"], "queued")
+        self.assertEqual(payload["aiRequestId"], "ai-job-1")
+
+    def test_ai_move_endpoint_requires_ai_request_id(self) -> None:
+        game = self._create_game()
+        response = self.client.post(
+            f"/api/games/{game.id}/ai-move/",
+            {"difficulty": "medium"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_ai_move_endpoint_rejects_when_ai_move_is_already_pending(self) -> None:
+        game = self._create_game()
+        with patch("checkers.models.Game.is_ai_thinking", return_value=True):
+            response = self.client.post(
+                f"/api/games/{game.id}/ai-move/",
+                {"difficulty": "medium", "aiRequestId": "ai-job-2"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 409)
+        payload = self._payload(response)
+        self.assertEqual(payload, {"error": "AI move already in progress"})
+
+    def test_ai_move_status_endpoint_returns_finished_job_payload(self) -> None:
+        game = self._create_game()
+
+        base_status = CheckersAIMoveJobStatus(
+            job_id="job-777",
+            status="finished",
+            is_finished=True,
+            is_failed=False,
+            result={"status": GAME_STATUS_IN_PROGRESS},
+            error=None,
+        )
+
+        with patch(
+            "checkers.views.get_checkers_ai_move_task_status",
+            return_value=base_status,
+        ):
+            response = self.client.get(f"/api/games/{game.id}/ai-move/status/job-777/")
+
+        self.assertEqual(response.status_code, 200)
+        payload = self._payload(response)
+        self.assertEqual(payload["jobId"], "job-777")
+        self.assertEqual(payload["status"], "finished")
+        self.assertTrue(payload["isFinished"])
+        self.assertFalse(payload["isFailed"])
+        self.assertEqual(payload["result"], {"status": GAME_STATUS_IN_PROGRESS})
+
+    def test_make_ai_move_skips_stale_ai_decision_when_state_changed_during_thinking(self) -> None:
+        game = self._create_game()
+        stale_ai_request_id = "ai-race-1"
+
+        def choose_move_with_concurrent_human_move(*, game, difficulty):
+            self.assertEqual(difficulty, "medium")
+            make_move_service(
+                game_id=game.id,
+                from_row=5,
+                from_col=0,
+                to_row=4,
+                to_col=1,
+            )
+            return CheckersAIMoveDecision(
+                from_row=2,
+                from_col=1,
+                to_row=3,
+                to_col=0,
+            )
+
+        with patch(
+            "checkers.services.game_service.choose_checkers_ai_move",
+            side_effect=choose_move_with_concurrent_human_move,
+        ):
+            make_ai_move_service(
+                game_id=game.id,
+                difficulty="medium",
+                ai_request_id=stale_ai_request_id,
+            )
+
+        game.refresh_from_db()
+        self.assertEqual(game.moves.count(), 1)
+        self.assertFalse(
+            game.moves.filter(ai_request_id=stale_ai_request_id).exists(),
+            "Stale AI decision must not be applied after board state changed.",
+        )
+
     def test_api_contract_for_all_endpoints(self) -> None:
         create_response = self.client.post("/api/games/", {}, format="json")
         self.assertEqual(create_response.status_code, 201)
@@ -456,3 +576,120 @@ class GameTimerTests(TestCase):
     def _payload(self, response) -> dict:
         response.render()
         return json.loads(response.content)
+
+
+class OpenRouterProviderTemperatureTests(TestCase):
+    def setUp(self) -> None:
+        self.provider = CheckersOpenRouterProvider(
+            model_name="openrouter/free",
+            adapter=_NoopOpenRouterAdapter(),
+        )
+
+    def test_temperature_varies_by_difficulty(self) -> None:
+        test_cases = (
+            ("easy", 0.7),
+            ("medium", 0.4),
+            ("hard", 0.1),
+            ("  HARD  ", 0.1),
+        )
+
+        for difficulty, expected_temperature in test_cases:
+            with self.subTest(difficulty=difficulty):
+                payload = self.provider._build_payload(self._build_context(difficulty))
+                self.assertEqual(payload["temperature"], expected_temperature)
+
+    def test_temperature_defaults_for_unknown_difficulty(self) -> None:
+        payload = self.provider._build_payload(self._build_context("legendary"))
+        self.assertEqual(payload["temperature"], 0.4)
+
+    def _build_context(self, difficulty: str) -> CheckersAIMoveContext:
+        board = Board.empty(8, 8)
+        legal_moves = (
+            CheckersAIMoveDecision(from_row=2, from_col=1, to_row=3, to_col=0),
+        )
+
+        return CheckersAIMoveContext(
+            game_id="game-1",
+            board=board,
+            current_turn=PLAYER_DARK,
+            difficulty=difficulty,
+            legal_moves=legal_moves,
+        )
+
+
+class OpenRouterProviderValidationTests(TestCase):
+    def setUp(self) -> None:
+        self.provider = CheckersOpenRouterProvider(
+            model_name="openrouter/free",
+            adapter=_NoopOpenRouterAdapter(),
+        )
+
+    def test_extract_decision_accepts_camel_case_string_numbers(self) -> None:
+        raw_response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "fromRow": "2",
+                                "fromCol": "1",
+                                "toRow": "3",
+                                "toCol": "0",
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+
+        decision = self.provider._extract_decision(raw_response)
+
+        self.assertEqual(
+            decision,
+            CheckersAIMoveDecision(from_row=2, from_col=1, to_row=3, to_col=0),
+        )
+
+    def test_extract_decision_accepts_chatty_text_around_json(self) -> None:
+        raw_response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            "Sure, here is the move you asked for.\n"
+                            "{\"from_row\": 2, \"from_col\": 1, \"to_row\": 3, \"to_col\": 0}\n"
+                            "Good luck!"
+                        )
+                    }
+                }
+            ]
+        }
+
+        decision = self.provider._extract_decision(raw_response)
+
+        self.assertEqual(
+            decision,
+            CheckersAIMoveDecision(from_row=2, from_col=1, to_row=3, to_col=0),
+        )
+
+    def test_extract_decision_raises_on_invalid_shape(self) -> None:
+        raw_response = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "fromRow": "not-an-int",
+                                "fromCol": "1",
+                                "toRow": "3",
+                                "toCol": "0",
+                            }
+                        )
+                    }
+                }
+            ]
+        }
+
+        with self.assertRaises(CheckersAIProviderInvalidResponseError) as error_context:
+            self.provider._extract_decision(raw_response)
+
+        self.assertIn("Move payload validation failed", str(error_context.exception))

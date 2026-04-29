@@ -6,7 +6,7 @@ from .constants import BOARD, DARK_SQUARE_PARITY, MIN_INPUT_INDEX, PLAYERS
 from .types import Board, Piece
 
 def create_initial_board() -> Board:
-    grid: Board = [[None] * BOARD.COLS for _ in range(BOARD.ROWS)]
+    grid = Board.empty(BOARD.ROWS, BOARD.COLS)
 
     for row in range(BOARD.ROWS):
         for col in range(BOARD.COLS):
@@ -19,7 +19,7 @@ def create_initial_board() -> Board:
     return grid
 
 def clone_board(board: Board) -> Board:
-    return [list(row) for row in board]
+    return board.clone()
 
 def is_valid_position(row: int, col: int) -> bool:
     return MIN_INPUT_INDEX <= row < BOARD.ROWS and MIN_INPUT_INDEX <= col < BOARD.COLS

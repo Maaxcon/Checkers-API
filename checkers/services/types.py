@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional, Union
+from typing import Literal, Union
 
-Player = Literal[1, 2]
+from .entities import Board, Checker, Player as EntityPlayer, Position
 
-@dataclass(frozen=True)
-class Piece:
-    player: Player
-    is_king: bool = False
+Player = EntityPlayer
+Piece = Checker
+
 
 @dataclass(frozen=True)
 class Move:
@@ -29,4 +28,3 @@ class CaptureMove:
     type: Literal["capture"] = "capture"
 
 MoveType = Union[Move, CaptureMove]
-Board = list[list[Optional[Piece]]]

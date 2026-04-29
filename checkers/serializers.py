@@ -10,6 +10,15 @@ class MoveRequestSerializer(serializers.Serializer):
     from_col = serializers.IntegerField(min_value=MIN_INPUT_INDEX, max_value=BOARD.COLS - 1)
     to_row = serializers.IntegerField(min_value=MIN_INPUT_INDEX, max_value=BOARD.ROWS - 1)
     to_col = serializers.IntegerField(min_value=MIN_INPUT_INDEX, max_value=BOARD.COLS - 1)
+    expected_state_version = serializers.IntegerField(min_value=0, required=False)
+    ai_request_id = serializers.CharField(max_length=64, required=False, allow_blank=False)
+
+
+class AIMoveRequestSerializer(serializers.Serializer):
+    difficulty = serializers.ChoiceField(choices=("easy", "medium", "hard"), default="medium", required=False)
+    # Frontend must reuse this ID for retries of the same move to ensure idempotency.
+    # If a new ID is sent, a new task will be spawned if the previous one died.
+    ai_request_id = serializers.CharField(max_length=64, required=True, allow_blank=False)
 
 
 class GameStateSerializer(serializers.ModelSerializer):

@@ -1,0 +1,71 @@
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+
+import requests
+
+from checkers.ai.models import RawResponse
+
+
+class CheckersOpenRouterTransportError(Exception):
+    pass
+
+
+class CheckersOpenRouterTimeoutError(CheckersOpenRouterTransportError):
+    pass
+
+
+class CheckersOpenRouterNetworkError(CheckersOpenRouterTransportError):
+    pass
+
+
+class CheckersOpenRouterHTTPStatusError(CheckersOpenRouterTransportError):
+    def __init__(self, status_code: int, response_body: str):
+        self.status_code = status_code
+        self.response_body = response_body
+        super().__init__(f"OpenRouter HTTP {status_code}: {response_body}")
+
+
+class CheckersOpenRouterResponseFormatError(CheckersOpenRouterTransportError):
+    pass
+
+
+@dataclass(frozen=True)
+class CheckersOpenRouterHTTPAdapter:
+    api_key: str
+    timeout_ms: int = 8000
+    base_url: str = "https://openrouter.ai/api/v1"
+
+    def create_chat_completion(self, payload: RawResponse) -> RawResponse:
+        try:
+            response = requests.post(
+                url=f"{self.base_url}/chat/completions",
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                timeout=self.timeout_ms / 1000,
+            )
+            response.raise_for_status()
+            raw_body = response.text
+        except requests.Timeout as exc:
+            raise CheckersOpenRouterTimeoutError("OpenRouter request timed out") from exc
+        except requests.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response is not None else 0
+            error_body = exc.response.text if exc.response is not None else str(exc)
+            raise CheckersOpenRouterHTTPStatusError(status_code, error_body) from exc
+        except requests.RequestException as exc:
+            raise CheckersOpenRouterNetworkError(f"OpenRouter network error: {exc}") from exc
+
+        try:
+            parsed = json.loads(raw_body)
+        except json.JSONDecodeError as exc:
+            raise CheckersOpenRouterResponseFormatError("OpenRouter response is not valid JSON") from exc
+
+        if not isinstance(parsed, dict):
+            raise CheckersOpenRouterResponseFormatError("OpenRouter response must be a JSON object")
+
+        return parsed

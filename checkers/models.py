@@ -1,5 +1,9 @@
 import uuid
+
+from django_rq import get_queue
 from django.db import models
+from django.db.models import Q
+from rq.job import Job
 from django.utils import timezone
 
 from .constants import (
@@ -23,12 +27,25 @@ class Game(models.Model):
     winner = models.PositiveSmallIntegerField(choices=PLAYER_CHOICES, null=True, blank=True)
     light_time_remaining = models.PositiveIntegerField(default=DEFAULT_PLAYER_TIME_SECONDS)
     dark_time_remaining = models.PositiveIntegerField(default=DEFAULT_PLAYER_TIME_SECONDS)
+    state_version = models.PositiveIntegerField(default=0)
+    current_ai_job_id = models.CharField(max_length=255, null=True, blank=True)
     last_move_at = models.DateTimeField(default=timezone.now)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self) -> str:
         return f"Game {self.id} - {self.status}"
+
+    def is_ai_thinking(self) -> bool:
+        if not self.current_ai_job_id:
+            return False
+
+        try:
+            queue = get_queue("default")
+            job = Job.fetch(self.current_ai_job_id, connection=queue.connection)
+            return job.get_status(refresh=False) in {"queued", "started", "deferred"}
+        except Exception:
+            return False
 
 
 class MoveEntry(models.Model):
@@ -40,7 +57,17 @@ class MoveEntry(models.Model):
     is_promoted = models.BooleanField(default=False)
     board_before = models.JSONField()
     time_spent = models.PositiveIntegerField()
+    ai_request_id = models.CharField(max_length=64, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["game", "ai_request_id"],
+                condition=Q(ai_request_id__isnull=False),
+                name="uniq_moveentry_game_ai_request_id",
+            )
+        ]
 
     def __str__(self) -> str:
         return f"Move in {self.game.id}: {self.from_pos} -> {self.to_pos}"

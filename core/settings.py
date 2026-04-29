@@ -31,6 +31,25 @@ def env_list(name: str) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
+def env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return default
+
+
+def env_samesite(name: str, default: str) -> str:
+    raw = os.getenv(name, default).strip().lower()
+    if raw == "none":
+        return "None"
+    if raw == "strict":
+        return "Strict"
+    return "Lax"
+
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-insecure-secret-key-change-me")
 
 # SECURITY WARNING: don't run with debug turned on in production!
@@ -54,11 +73,13 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     "corsheaders", 
     'rest_framework',
+    "django_rq",
     "checkers",
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -134,10 +155,40 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+    },
+}
 
 # CORS configuration
 CORS_ALLOW_ALL_ORIGINS = env_bool("DJANGO_CORS_ALLOW_ALL_ORIGINS", default=DEBUG)
 CORS_ALLOWED_ORIGINS = env_list("DJANGO_CORS_ALLOWED_ORIGINS")
+CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
+if not CSRF_TRUSTED_ORIGINS and DEBUG:
+    CSRF_TRUSTED_ORIGINS = [
+        "http://localhost",
+        "http://127.0.0.1",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+    ]
+
+CSRF_COOKIE_SAMESITE = env_samesite("DJANGO_CSRF_COOKIE_SAMESITE", "Lax")
+CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", default=False)
+SESSION_COOKIE_SAMESITE = env_samesite("DJANGO_SESSION_COOKIE_SAMESITE", "Lax")
+SESSION_COOKIE_SECURE = env_bool("DJANGO_SESSION_COOKIE_SECURE", default=False)
+
+# Browsers reject SameSite=None cookies without Secure.
+# For local HTTP development, prefer Lax unless Secure is explicitly enabled.
+if CSRF_COOKIE_SAMESITE == "None" and not CSRF_COOKIE_SECURE:
+    CSRF_COOKIE_SAMESITE = "Lax"
+if SESSION_COOKIE_SAMESITE == "None" and not SESSION_COOKIE_SECURE:
+    SESSION_COOKIE_SAMESITE = "Lax"
 
 REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "checkers.exception_handler.custom_exception_handler",
@@ -152,3 +203,12 @@ REST_FRAMEWORK = {
         "rest_framework.parsers.MultiPartParser",
     ),
 }
+
+RQ_REDIS_URL = os.getenv("RQ_REDIS_URL", "redis://redis:6379/0")
+RQ_QUEUES = {
+    "default": {
+        "URL": RQ_REDIS_URL,
+        "DEFAULT_TIMEOUT": env_int("RQ_DEFAULT_TIMEOUT", 300),
+    },
+}
+RQ_SHOW_ADMIN_LINK = True
